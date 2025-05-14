@@ -1,0 +1,7 @@
+[
+  {"speaker": "Client", "text": "We need an AI Engineer with experience in fraud detection."},
+  {"speaker": "You", "text": "What programming languages are essential?"},
+  {"speaker": "Client", "text": "Python and TensorFlow are a must."},
+  {"speaker": "You", "text": "What about experience with cloud platforms?"},
+  {"speaker": "Client", "text": "Yes, experience with AWS or Azure is highly preferred."}
+]
