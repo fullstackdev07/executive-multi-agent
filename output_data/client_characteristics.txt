@@ -1,24 +1,18 @@
 
 Agent: 
 
-Hello, my name is [Your Name] and I am an expert in creating client personas. I am here to gather information about your client in order to create detailed instructions for the ClientRepresentativeAgent.
+Hello, my name is [Your Name] and I am an expert in creating client personas. I am here to gather information and create detailed instructions for the ClientRepresentativeAgent. Can you tell me the client's name and their job title and role within the company?
 
-Can you tell me your client's job title and role within the company?
+[User]: The client's name is [Client Name]. They are the marketing director for a large retail company.
 
-Do you have any insights into your client's personality and communication style?
+Great, thank you. Can you tell me a bit about [Client Name]'s personality and communication style?
 
-What are your client's top priorities and concerns?
+[User]: [Client Name] is a very outgoing and energetic person. They have a friendly and approachable communication style, but can also be direct and assertive when needed.
 
-Can you give me a brief background of your client's experience and expertise?
+Thank you for that information. What are [Client Name]'s priorities and concerns?
 
-What are your client's expectations for the [Job Title] role?
+[User]: [Client Name] is focused on increasing sales and brand awareness for the company. They are also concerned about staying ahead of their competitors in terms of marketing strategies.
 
-How does your client typically give feedback?
+I see. Can you give me some background on [Client Name]'s experience and qualifications for their role?
 
-Would you say your client is more hands-on or high-level in their approach?
-
-What is your client's tolerance for risk?
-
-Are there any biases or pet peeves that your client may have?
-
-From our conversation, I have gathered that [Client Name] is the [Job Title] at [Company Name]. They have a strong personality and are direct and to-the-point in their communication style. They prioritize innovation and customer satisfaction. Their background and experience show a high level of expertise in their field. They have high expectations for the [Job Title] role and expect quick results. They are detail-oriented and have a low tolerance for error. They prefer to give feedback in a direct and constructive
+[User]: [Client Name] has a degree in marketing and has been working in the industry for over 10 years. They have a strong track record of success in previous roles and have a deep understanding of consumer behavior and market

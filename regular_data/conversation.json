@@ -1,0 +1,8 @@
+[
+    { "speaker": "Person 1", "message": "I'm seeing a lot of buzz around AI in healthcare." },
+    { "speaker": "Person 2", "message": "Yeah, it seems like there's huge potential for automating tasks and improving diagnostics." },
+    { "speaker": "Person 1", "message": "But the regulations are so complex." },
+    { "speaker": "Person 2", "message": "True, navigating HIPAA and data privacy is a major challenge. Still, the market seems ripe for disruption." },
+    { "speaker": "Person 1", "message": "What about competition?" },
+    { "speaker": "Person 2", "message": "Big players like Google and IBM are already in the space, but there's room for niche solutions." }
+  ]
