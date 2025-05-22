@@ -1,84 +1,106 @@
-# client_representative_creator_agent.py
 import os
+from typing import List, Optional
+from dotenv import load_dotenv
 from langchain_community.llms import OpenAI
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
-from dotenv import load_dotenv
+from PyPDF2 import PdfReader
+import json
 
 load_dotenv()
 
 class ClientRepresentativeCreatorAgent:
-    """
-    A search agent that creates instructions for the ClientRepresentativeAgent by asking questions about the client, maintaining conversation history.
-    """
     def __init__(self, verbose: bool = False):
-        self.name = "Client Representative Creator"
-        self.role = "an expert in creating client personas"
-        self.goal = "to gather information and create detailed instructions for the ClientRepresentativeAgent"
+        self.name = "Client Representative Prompt Creator"
         self.verbose = verbose
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         if not self.openai_api_key:
             print("OpenAI API key not found. Please set the OPENAI_API_KEY environment variable.")
         self.llm = OpenAI(openai_api_key=self.openai_api_key, temperature=0.7)
-        self.prompt_template = None
-        self.chain = None
-        self.conversation_history = ""
         self._create_prompt()
         self._create_chain()
 
-    def _create_prompt(self) -> PromptTemplate:
-        template = """You are {role}. Your goal is {goal}.
+    def _create_prompt(self) -> None:
+        template = """You will be given a description of a specific client, including how they think, what they care about, and how they speak. Your task is to turn this into a natural-language prompt that can be used to configure another AI agent to behave exactly like this client when interacting with documents, people, and data.
 
-        You are engaging in a conversation with a user to gather information needed to accurately represent a client in the form of custom instructions. Remember the data to maintain conversation history.
+Client Description:
+{client_description}
 
-        Here are some example questions:
-        * What is the client's job title and role within the company?
-        * What is the client's personality and communication style?
-        * What are the client's priorities and concerns?
-        * What is the client's background and experience?
-        * What are the client's expectations for the [Job Title] role?
-        * How does the client typically give feedback?
-        * Is the client hands-on or high-level?
-        * What is the client's tolerance for risk?
-        * What are the client's biases or pet peeves?
+Optional Tone and Communication Style (from transcripts):
+{client_tone}
 
-        Use the following conversation history as reference:
-        {conversation_history}
+Write a single-paragraph prompt that:
+- Embodies the client's voice, mindset, and values.
+- Enables another agent to speak, think, and respond like the client.
+- Sounds like a natural internal narrative, not a set of instructions.
 
-        Continue asking questions until you have a comprehensive understanding of the client's personality and perspective.
-
-        Once you have gathered enough information, summarize the client's persona in a detailed instruction set that can be used by the ClientRepresentativeAgent.
-
-        For example: '[Client Name] is the CEO of a fast-growing SaaS company. He is a highly technical leader with a strong focus on innovation and customer satisfaction. He is direct and to-the-point in his communication style and expects quick results. He is detail oriented, and has a low tolerance for error.'
-
-        Begin! If this is the beginning, start by introducing yourself and asking the first question. If this is not the begining, continue the coversation."""
+Prompt:"""
 
         self.prompt_template = PromptTemplate(
-            input_variables=["role", "goal", "conversation_history"],
+            input_variables=["client_description", "client_tone"],
             template=template,
         )
 
-    def _create_chain(self) -> LLMChain:
-        if not self.prompt_template:
-            raise Exception("Prompt template must be created before creating the LLMChain.")
+    def _create_chain(self) -> None:
         self.chain = LLMChain(llm=self.llm, prompt=self.prompt_template)
 
-    def run(self, user_input: str = "") -> str:
-        if user_input:
-            self.conversation_history += f"\nUser: {user_input}"
+    def _extract_text_from_pdf(self, file_path: str) -> str:
+        reader = PdfReader(file_path)
+        return "\n".join(page.extract_text() or "" for page in reader.pages)
 
-        input_data = {"role": self.role, "goal": self.goal, "conversation_history": self.conversation_history}
-        response = self.chain.run(input_data)
+    def _extract_text_from_txt(self, file_path: str) -> str:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return f.read().strip()
 
-        self.conversation_history += f"\nAgent: {response}"
+    def _extract_text_from_json(self, file_path: str) -> str:
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return "\n".join(f"{k}: {v}" for k, v in data.items())
+        elif isinstance(data, list):
+            return "\n".join(str(item) for item in data)
+        else:
+            return str(data)
 
-        if self.verbose:
-            print(f"\nAgent Response: {response}")
+    def _extract_text_from_file(self, file_path: str) -> str:
+        if file_path.endswith(".pdf"):
+            return self._extract_text_from_pdf(file_path)
+        elif file_path.endswith(".txt"):
+            return self._extract_text_from_txt(file_path)
+        elif file_path.endswith(".json"):
+            return self._extract_text_from_json(file_path)
+        else:
+            raise ValueError(f"Unsupported file type: {file_path}")
 
-        return response
+    def _extract_all_files_text(self, file_paths: List[str]) -> str:
+        all_texts = []
+        for path in file_paths:
+            try:
+                all_texts.append(self._extract_text_from_file(path))
+            except Exception as e:
+                if self.verbose:
+                    print(f"Failed to process {path}: {e}")
+        return "\n\n".join(all_texts).strip()
 
-    def get_conversation_history(self) -> str:
-        """Return the conversation history, makes it accessible to API."""
-        return self.conversation_history
+    def run(self, client_description: str, transcript_file_paths: Optional[List[str]] = None) -> str:
+        """
+        Args:
+            client_description (str): A free-form description of the client.
+            transcript_file_paths (List[str], optional): Optional list of transcript files to enrich tone.
 
-# Removed the `if __name__ == "__main__":` block
+        Returns:
+            str: A paragraph prompt emulating the client.
+        """
+        if not client_description:
+            raise ValueError("Client description must be provided.")
+
+        client_tone = ""
+        if transcript_file_paths:
+            client_tone = self._extract_all_files_text(transcript_file_paths)
+
+        input_data = {
+            "client_description": client_description.strip(),
+            "client_tone": client_tone.strip() or "Not specified"
+        }
+
+        return self.chain.run(input_data)

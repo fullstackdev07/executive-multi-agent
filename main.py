@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, APIRouter
 import logging
 from fastapi.middleware.cors import CORSMiddleware
 import json
@@ -21,6 +21,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
+router = APIRouter()
  
 #CORS Configuration
 origins = [
@@ -172,7 +173,7 @@ async def create_job_description(
         logger.exception("Error generating job description")
         raise HTTPException(status_code=500, detail=f"Error generating JD: {str(e)}")
 
-@app.post("/client_feedback")
+@app.post("/client_creator")
 async def get_client_feedback(
     client_description: Optional[str] = Form(None, description="Free-form client description (persona, values, priorities, tone, etc.)"),
     transcript_files: Optional[List[UploadFile]] = File(None, description="Optional transcript files (PDF, TXT, JSON)")
@@ -199,7 +200,7 @@ async def get_client_feedback(
         description_text = client_description.strip() if client_description else "Not explicitly described. Please infer from communication tone."
 
         # Run the agent
-        agent = ClientRepresentativeAgent(verbose=True)
+        agent = ClientRepresentativeCreatorAgent(verbose=True)
         generated_prompt = agent.run(
             client_description=description_text,
             transcript_file_paths=temp_file_paths if temp_file_paths else None
@@ -219,6 +220,44 @@ async def get_client_feedback(
                     os.remove(path)
             except Exception as cleanup_error:
                 logger.warning(f"Could not delete temp file {path}: {cleanup_error}")
+
+
+@app.post("/client_feedback/")
+async def create_client_characteristics(
+    user_input: str = Form(""),
+    files: List[UploadFile] = File(default=[])
+):
+    try:
+        file_contents = {}
+        for file in files:
+            try:
+                content = await file.read()
+                file_contents[file.filename] = content
+            except Exception as e:
+                logger.warning(f"Could not read {file.filename}: {e}")
+
+        temp_paths = []
+        for filename, content in file_contents.items():
+            ext = filename.split('.')[-1].lower()
+            if ext in ["txt", "pdf", "json"]:
+                path = f"{filename}"
+                with open(path, "wb") as f:
+                    f.write(content)
+                temp_paths.append(path)
+
+        agent = ClientRepresentativeAgent(verbose=True)
+
+        # Pass files if they exist, else None
+        if temp_paths:
+            response = agent.run(input_statement=user_input.strip(), files=temp_paths)
+        else:
+            response = agent.run(input_statement=user_input.strip())
+
+        return {"client_representative_feedback": response}
+
+    except Exception as e:
+        logger.exception(f"Error processing client characteristics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/interview_report/")
 async def create_interview_report(
@@ -267,30 +306,6 @@ async def create_interview_report(
             except Exception as cleanup_error:
                 logger.warning(f"Could not delete temp file {path}: {cleanup_error}")
 
-@app.post("/client_characteristics/")
-async def create_client_characteristics(user_input_file: UploadFile = File(...)):
-    try:
-        # Read the content from the file
-        content = await user_input_file.read()
-        try:
-            json_data = json.loads(content)
-        except json.JSONDecodeError as e:
-            raise HTTPException(status_code=400, detail=f"Invalid JSON format: {e}")
-
-        # Extract the user input from the JSON
-        # You'll need to adapt this based on your expected JSON structure
-        user_input = json_data.get("user_input")
-
-        if user_input is None:
-            raise HTTPException(status_code=400, detail="Missing 'user_input' key in the JSON")
-
-        agent = ClientRepresentativeCreatorAgent()
-        response = agent.run(user_input)  # Pass user input
-
-        return {"response": response, "conversation_history": agent.get_conversation_history()}
-    except Exception as e:
-        logger.exception(f"Error creating client characteristics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 app.add_middleware(
     CORSMiddleware,

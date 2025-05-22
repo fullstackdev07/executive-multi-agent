@@ -148,108 +148,107 @@
 #         return self.chain.run(input_data)
 
 import os
-from typing import List, Optional
+from typing import Optional
 from dotenv import load_dotenv
 from langchain_community.llms import OpenAI
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
-from PyPDF2 import PdfReader
-import json
 
 load_dotenv()
 
 class ClientRepresentativeAgent:
     def __init__(self, verbose: bool = False):
-        self.name = "Client Representative Prompt Creator"
         self.verbose = verbose
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         if not self.openai_api_key:
-            print("OpenAI API key not found. Please set the OPENAI_API_KEY environment variable.")
+            print("OpenAI API key not found.")
         self.llm = OpenAI(openai_api_key=self.openai_api_key, temperature=0.7)
-        self._create_prompt()
-        self._create_chain()
+        self._create_extraction_prompt()
+        self._create_feedback_prompt()
+        self._create_chains()
 
-    def _create_prompt(self) -> None:
-        template = """You will be given a description of a specific client, including how they think, what they care about, and how they speak. Your task is to turn this into a natural-language prompt that can be used to configure another AI agent to behave exactly like this client when interacting with documents, people, and data.
+    def _create_extraction_prompt(self):
+        self.extraction_template = PromptTemplate(
+            input_variables=["input_statement"],
+            template="""
+    From the following statement, infer the client's characteristics:
 
-Client Description:
-{client_description}
+    Statement:
+    {input_statement}
 
-Optional Tone and Communication Style (from transcripts):
-{client_tone}
-
-Write a single-paragraph prompt that:
-- Embodies the client's voice, mindset, and values.
-- Enables another agent to speak, think, and respond like the client.
-- Sounds like a natural internal narrative, not a set of instructions.
-
-Prompt:"""
-
-        self.prompt_template = PromptTemplate(
-            input_variables=["client_description", "client_tone"],
-            template=template,
+    Return as JSON:
+    {{
+        "client_persona": "...",
+        "client_priorities": "...",
+        "client_values": "...",
+        "client_tone": "..."
+    }}
+    """
         )
 
-    def _create_chain(self) -> None:
-        self.chain = LLMChain(llm=self.llm, prompt=self.prompt_template)
+    def _create_feedback_prompt(self):
+        self.feedback_template = PromptTemplate(
+            input_variables=[
+                "client_persona",
+                "client_priorities",
+                "client_values",
+                "client_tone",
+                "input_to_review",
+            ],
+            template="""
+    You are a Client Representative in a project. Review the following input as if you were the client.
 
-    def _extract_text_from_pdf(self, file_path: str) -> str:
-        reader = PdfReader(file_path)
-        return "\n".join(page.extract_text() or "" for page in reader.pages)
+    Client Persona: {client_persona}  
+    Client Priorities: {client_priorities}  
+    Client Values: {client_values}  
+    Client Tone and Style: {client_tone}  
 
-    def _extract_text_from_txt(self, file_path: str) -> str:
-        with open(file_path, "r", encoding="utf-8") as f:
-            return f.read().strip()
+    Input to Review:  
+    {input_to_review}
 
-    def _extract_text_from_json(self, file_path: str) -> str:
-        with open(file_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if isinstance(data, dict):
-            return "\n".join(f"{k}: {v}" for k, v in data.items())
-        elif isinstance(data, list):
-            return "\n".join(str(item) for item in data)
-        else:
-            return str(data)
+    Your job:
+    - Emulate the client's tone
+    - Reflect their priorities and values
+    - Offer constructive feedback
+    - Ask for clarity or express concerns
+    - Be specific and helpful
 
-    def _extract_text_from_file(self, file_path: str) -> str:
-        if file_path.endswith(".pdf"):
-            return self._extract_text_from_pdf(file_path)
-        elif file_path.endswith(".txt"):
-            return self._extract_text_from_txt(file_path)
-        elif file_path.endswith(".json"):
-            return self._extract_text_from_json(file_path)
-        else:
-            raise ValueError(f"Unsupported file type: {file_path}")
+    Client Representative Feedback:
+    """
+        )
 
-    def _extract_all_files_text(self, file_paths: List[str]) -> str:
-        all_texts = []
-        for path in file_paths:
-            try:
-                all_texts.append(self._extract_text_from_file(path))
-            except Exception as e:
-                if self.verbose:
-                    print(f"Failed to process {path}: {e}")
-        return "\n\n".join(all_texts).strip()
+    def _create_chains(self):
+        self.extraction_chain = LLMChain(llm=self.llm, prompt=self.extraction_template)
+        self.feedback_chain = LLMChain(llm=self.llm, prompt=self.feedback_template)
+            
+    def run(self, input_statement: str, files: Optional[list] = None) -> str:
+        combined_input = input_statement or ""
+        
+        # If files are provided, read and append their content
+        if files:
+            for file_path in files:
+                try:
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        file_text = f.read()
+                    combined_input += "\n" + file_text
+                except Exception as e:
+                    if self.verbose:
+                        print(f"Failed to read file {file_path}: {e}")
 
-    def run(self, client_description: str, transcript_file_paths: Optional[List[str]] = None) -> str:
-        """
-        Args:
-            client_description (str): A free-form description of the client.
-            transcript_file_paths (List[str], optional): Optional list of transcript files to enrich tone.
+        # Step 1: Extract client persona, tone, values, priorities
+        extracted_json_str = self.extraction_chain.run({"input_statement": combined_input})
+        if self.verbose:
+            print("Extracted Traits:\n", extracted_json_str)
 
-        Returns:
-            str: A paragraph prompt emulating the client.
-        """
-        if not client_description:
-            raise ValueError("Client description must be provided.")
+        try:
+            extracted_data = eval(extracted_json_str)
+        except Exception as e:
+            raise ValueError(f"Failed to parse extracted client data: {e}")
 
-        client_tone = ""
-        if transcript_file_paths:
-            client_tone = self._extract_all_files_text(transcript_file_paths)
-
-        input_data = {
-            "client_description": client_description.strip(),
-            "client_tone": client_tone.strip() or "Not specified"
+        # Step 2: Generate feedback using inferred traits
+        feedback_input = {
+            **extracted_data,
+            "input_to_review": combined_input.strip()
         }
 
-        return self.chain.run(input_data)
+        return self.feedback_chain.run(feedback_input)
