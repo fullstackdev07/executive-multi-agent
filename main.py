@@ -173,7 +173,7 @@ async def create_job_description(
         logger.exception("Error generating job description")
         raise HTTPException(status_code=500, detail=f"Error generating JD: {str(e)}")
 
-@app.post("/client_creator")
+@app.post("/client_creator/")
 async def get_client_feedback(
     client_description: Optional[str] = Form(None, description="Free-form client description (persona, values, priorities, tone, etc.)"),
     transcript_files: Optional[List[UploadFile]] = File(None, description="Optional transcript files (PDF, TXT, JSON)")
@@ -259,19 +259,31 @@ async def create_client_characteristics(
         logger.exception(f"Error processing client characteristics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/interview_report/")
+@app.post("/interview_report")
 async def create_interview_report(
-    manual_input: Optional[str] = Form(None, description="Structured input with ---JOB SPEC---, ---CANDIDATE CV---, ---INTERVIEW TRANSCRIPT---"),
-    files: Optional[List[UploadFile]] = File(None, description="Job spec, CV, or transcript files (.pdf, .txt, .json)")
+    input_text: Optional[str] = Form(
+        None,
+        description="Optional freeform input from user (e.g. consultant assessment or structured sections with delimiters like ---JOB SPEC---)."
+    ),
+    files: Optional[List[UploadFile]] = File(
+        None,
+        description="Optional supporting files (job spec, CV, transcript, etc.) in .pdf, .txt, or .json format."
+    )
 ):
+    """
+    Generate a structured interview report (~300 words) from candidate info.
+    You can provide either or both:
+    - input_text: manual input (consultant assessment or structured sections)
+    - files: uploaded CV, job spec, interview transcript, etc.
+    """
     temp_file_paths = []
-
+    print(f"Received input_text: {input_text}")
+    print(f"Received files: {files}")
     try:
-        # Validate input presence
-        if not manual_input and not files:
+        if not input_text and not files:
             raise HTTPException(
                 status_code=400,
-                detail="You must provide either manual_input or file attachments, or both."
+                detail="You must provide either input_text, file attachments, or both."
             )
 
         attachment_paths = []
@@ -286,10 +298,10 @@ async def create_interview_report(
                 temp_file_paths.append(tmp_file.name)
                 attachment_paths.append(tmp_file.name)
 
-        # Initialize and run the agent
+        # Run the report generator
         agent = InterviewReportCreatorAgent(verbose=True)
         report = agent.run(
-            manual_input=manual_input or "",
+            input_text=input_text or "",
             attachment_paths=attachment_paths if attachment_paths else None
         )
 
@@ -297,7 +309,7 @@ async def create_interview_report(
 
     except Exception as e:
         logger.exception(f"Error creating interview report: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="An internal error occurred while generating the report.")
 
     finally:
         for path in temp_file_paths:
@@ -305,7 +317,6 @@ async def create_interview_report(
                 os.remove(path)
             except Exception as cleanup_error:
                 logger.warning(f"Could not delete temp file {path}: {cleanup_error}")
-
 
 app.add_middleware(
     CORSMiddleware,
