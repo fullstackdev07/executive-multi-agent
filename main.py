@@ -174,17 +174,20 @@ async def create_job_description(
 
 @app.post("/client_feedback")
 async def get_client_feedback(
-    manual_input_text: Optional[str] = Form(None, description="Client persona, priorities, values in a single text input"),
-    transcript_files: Optional[List[UploadFile]] = File(None, description="Multiple transcript files (PDF, TXT, JSON)")
+    client_description: Optional[str] = Form(None, description="Free-form client description (persona, values, priorities, tone, etc.)"),
+    transcript_files: Optional[List[UploadFile]] = File(None, description="Optional transcript files (PDF, TXT, JSON)")
 ):
     temp_file_paths = []
 
     try:
-        # Validate: at least one input must be present
-        if not manual_input_text and not transcript_files:
-            raise HTTPException(status_code=400, detail="You must provide either manual_input_text, transcript_files, or both.")
+        # Validate input: at least one input
+        if not client_description and not transcript_files:
+            raise HTTPException(
+                status_code=400,
+                detail="You must provide either a client_description or transcript_files (or both)."
+            )
 
-        # Save uploaded transcript files temporarily if any
+        # Save uploaded transcript files
         if transcript_files:
             for file in transcript_files:
                 contents = await file.read()
@@ -192,27 +195,30 @@ async def get_client_feedback(
                     tmp.write(contents)
                     temp_file_paths.append(tmp.name)
 
-        # Run agent
+        # Use fallback text if client_description is missing
+        description_text = client_description.strip() if client_description else "Not explicitly described. Please infer from communication tone."
+
+        # Run the agent
         agent = ClientRepresentativeAgent(verbose=True)
-        client_prompt = agent.run(
-            manual_input_text=manual_input_text,
+        generated_prompt = agent.run(
+            client_description=description_text,
             transcript_file_paths=temp_file_paths if temp_file_paths else None
         )
 
-        return {"generated_prompt": client_prompt}
+        return {"generated_prompt": generated_prompt}
 
     except Exception as e:
         logger.exception(f"Error generating client representative prompt: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="An error occurred while generating the prompt.")
 
     finally:
         # Clean up temp files
         for path in temp_file_paths:
-            if os.path.exists(path):
-                try:
+            try:
+                if os.path.exists(path):
                     os.remove(path)
-                except Exception as cleanup_error:
-                    logger.warning(f"Could not delete temp file {path}: {cleanup_error}")
+            except Exception as cleanup_error:
+                logger.warning(f"Could not delete temp file {path}: {cleanup_error}")
 
 @app.post("/interview_report/")
 async def create_interview_report(
