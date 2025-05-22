@@ -1,298 +1,148 @@
-# import os
-# from langchain_community.llms import OpenAI 
-# from langchain.chains import LLMChain
-# from langchain.prompts import PromptTemplate
-# from dotenv import load_dotenv
-# import json
-
-# load_dotenv()
-
-# class ClientRepresentativeAgent:
-#     """
-#     A search agent that provides feedback from the client's perspective, extracting client information from a conversation.
-#     """
-#     def __init__(self, verbose: bool = False):
-#         self.name = "Client Representative"
-#         self.role = "acting as the client"
-#         self.goal = "to review documents and provide feedback from the client's perspective"
-#         self.verbose = verbose
-#         self.openai_api_key = os.getenv("OPENAI_API_KEY")
-#         if not self.openai_api_key:
-#             raise ValueError("OpenAI API key not found.  Please set the OPENAI_API_KEY environment variable.")
-#         self.llm = OpenAI(openai_api_key=self.openai_api_key, temperature=0.7)
-#         self.prompt_template = None
-#         self.chain = None
-
-#     def _create_prompt(self) -> PromptTemplate:
-#         template = """You are acting as {client_name}'s {client_title}. You have the following characteristics: {client_characteristics}.
-
-#         You are reviewing the following document: {document}.
-
-#         Provide feedback on the document from the perspective of {client_name}'s {client_title}.
-#         Focus on whether the document accurately reflects the role's responsibilities, required skills, and the company's culture.  Be critical and offer specific suggestions for improvement.
-
-#         Feedback:"""
-
-#         return PromptTemplate(
-#             input_variables=[
-#                 "role",
-#                 "goal",
-#                 "client_name",
-#                 "client_title",
-#                 "client_characteristics",
-#                 "document",
-#             ],
-#             template=template,
-#         )
-
-#     def _create_chain(self) -> LLMChain:
-#         if not self.prompt_template:
-#             raise ValueError("Prompt template must be created before creating the LLMChain.")
-#         return LLMChain(llm=self.llm, prompt=self.prompt_template)
-
-#     def run(self, input_data: dict) -> str:
-#         if not self.chain:
-#             self.prompt_template = self._create_prompt()
-#             self.chain = self._create_chain()
-
-#         if self.verbose:
-#             print(f"\nRunning {self.name} with input: {input_data}")
-
-#         response = self.chain.run(input_data)
-
-#         if self.verbose:
-#             print(f"\n{self.name} response: {response}")
-
-#         return response
-
-#     def load_job_description_from_file(self, filepath: str) -> str:
-#         """
-#         Loads the job description from a file.
-
-#         Args:
-#             filepath: The path to the file.
-
-#         Returns:
-#             A string representation of the job description.
-#         """
-#         try:
-#             with open(filepath, 'r') as f:
-#                 job_description = f.read()
-#             return job_description
-#         except FileNotFoundError:
-#             return "Error: Job description file not found."
-
-#     def save_feedback_to_file(self, feedback: str, filepath: str):
-#         """
-#         Saves the client feedback to a file.
-
-#         Args:
-#             feedback: The client feedback.
-#             filepath: The path to the file.
-#         """
-#         try:
-#             with open(filepath, 'w') as f:
-#                 f.write(feedback)
-#             print(f"Client feedback saved to {filepath}")
-#         except Exception as e:
-#             print(f"Error saving client feedback: {e}")
-
-#     def extract_client_information(self, conversation: str) -> dict:
-#         """
-#         Extracts client name, title, and characteristics from a conversation transcript.
-
-#         Args:
-#             conversation: A string containing the conversation transcript.
-
-#         Returns:
-#             A dictionary containing the client's name, title, and characteristics.
-#         """
-#         extract_prompt_template = """You are an expert at extracting information from conversations.
-
-#         You are given the following conversation transcript:
-#         {conversation}
-
-#         Your task is to extract the following information about the client:
-#         1. Client Name: The name of the client.
-#         2. Client Title: The client's job title.
-#         3. Client Characteristics: A brief description of the client's personality, communication style, priorities, and background.
-
-#         Provide the information in the following format:
-#         Client Name: [Client Name]
-#         Client Title: [Client Title]
-#         Client Characteristics: [Client Characteristics]"""
-
-#         extract_prompt = PromptTemplate(
-#             input_variables=["conversation"],
-#             template=extract_prompt_template,
-#         )
-
-#         extract_chain = LLMChain(llm=self.llm, prompt=extract_prompt)
-#         information = extract_chain.run(conversation)
-
-#         try:
-#             client_name = information.split("Client Name: ")[1].split("\n")[0].strip()
-#             client_title = information.split("Client Title: ")[1].split("\n")[0].strip()
-#             client_characteristics = information.split("Client Characteristics: ")[1].strip()
-#             return {
-#                 "client_name": client_name,
-#                 "client_title": client_title,
-#                 "client_characteristics": client_characteristics,
-#             }
-#         except IndexError:
-#             print("Error: Could not extract client information from the conversation.")
-#             return {
-#                 "client_name": "Unknown",
-#                 "client_title": "Unknown",
-#                 "client_characteristics": "No information available.",
-#             }
-
-
-# if __name__ == "__main__":
-#     agent = ClientRepresentativeAgent(verbose=True)
-#     job_description_filepath = '../output_data/job_description.txt'
-#     job_description = agent.load_job_description_from_file(job_description_filepath)
-
-#     transcript_filepath = '../regular_data/transcript.json'
-#     f = open(transcript_filepath)
-#     data = json.load(f)
-#     transcript_text = ""
-#     for entry in data:
-#         speaker = entry.get("speaker", "Unknown") 
-#         text = entry.get("text", "")
-#         transcript_text += f"{speaker}: {text}\n"
-
-#     client_info = agent.extract_client_information(transcript_text)
-
-#     client_rep_input = {
-#         "client_name": client_info["client_name"],
-#         "client_title": client_info["client_title"],
-#         "client_characteristics": client_info["client_characteristics"],
-#         "document": job_description,
-#         "role": agent.role,
-#         "goal": agent.goal
-#     }
-#     client_feedback = agent.run(client_rep_input)
-#     print("\nClient Feedback:\n", client_feedback)
-
-#     feedback_filepath = '../output_data/client_feedback.txt'
-#     agent.save_feedback_to_file(client_feedback, feedback_filepath)
-
-# client_representative_agent.py
 import os
+import json
+from typing import List, Union, Optional
+from dotenv import load_dotenv
 from langchain_community.llms import OpenAI
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
-from dotenv import load_dotenv
-import json
+from PyPDF2 import PdfReader
 
 load_dotenv()
 
 class ClientRepresentativeAgent:
-    """
-    A search agent that provides feedback from the client's perspective, extracting client information from a conversation.
-    """
     def __init__(self, verbose: bool = False):
-        self.name = "Client Representative"
-        self.role = "acting as the client"
-        self.goal = "to review documents and provide feedback from the client's perspective"
+        self.name = "Client Representative Prompt Creator"
+        self.role = "Generating an agent prompt that reflects the client's mindset"
+        self.goal = "To create a prompt that enables another agent to behave like the client"
         self.verbose = verbose
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         if not self.openai_api_key:
             print("OpenAI API key not found. Please set the OPENAI_API_KEY environment variable.")
         self.llm = OpenAI(openai_api_key=self.openai_api_key, temperature=0.7)
-        self.prompt_template = None
-        self.chain = None
         self._create_prompt()
         self._create_chain()
 
-    def _create_prompt(self) -> PromptTemplate:
-        template = """You are acting as {client_name}'s {client_title}. You have the following characteristics: {client_characteristics}.
+    def _create_prompt(self) -> None:
+        template = """You are creating a prompt for an AI agent that must behave like a specific client when reviewing and interacting with documents and data.
 
-        You are reviewing the following document: {document}.
+Client Persona:
+{client_persona}
 
-        Provide feedback on the document from the perspective of {client_name}'s {client_title}.
-        Focus on whether the document accurately reflects the role's responsibilities, required skills, and the company's culture.  Be critical and offer specific suggestions for improvement.
+Client Priorities:
+{client_priorities}
 
-        Feedback:"""
+Client Values:
+{client_values}
+
+Client Tone and Communication Style (based on transcripts):
+{client_tone}
+
+Generate a prompt that configures an AI agent to:
+1. Emulate the client's tone and communication style.
+2. Reflect the client's values and priorities.
+3. Review documents or data critically and constructively from the client's perspective.
+4. Respond in a way that aligns with how the client would speak and think.
+
+The output should be a prompt that can be used to configure another LLM-based agent to behave like this client.
+
+Generated Prompt:"""
 
         self.prompt_template = PromptTemplate(
             input_variables=[
-                "role",
-                "goal",
-                "client_name",
-                "client_title",
-                "client_characteristics",
-                "document",
+                "client_persona",
+                "client_priorities",
+                "client_values",
+                "client_tone",
             ],
             template=template,
         )
 
-    def _create_chain(self) -> LLMChain:
-        if not self.prompt_template:
-            raise Exception("Prompt template must be created before creating the LLMChain.")
+    def _create_chain(self) -> None:
         self.chain = LLMChain(llm=self.llm, prompt=self.prompt_template)
 
-    def run(self, client_name: str, client_title: str, client_characteristics: str, document: str) -> str:
-        input_data = {
-            "client_name": client_name,
-            "client_title": client_title,
-            "client_characteristics": client_characteristics,
-            "document": document,
-            "role": self.role,
-            "goal": self.goal
+    def _extract_text_from_pdf(self, file_path: str) -> str:
+        reader = PdfReader(file_path)
+        return "\n".join(page.extract_text() or "" for page in reader.pages)
+
+    def _extract_text_from_txt(self, file_path: str) -> str:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+
+    def _extract_text_from_json(self, file_path: str) -> str:
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return "\n".join(f"{k}: {v}" for k, v in data.items())
+        elif isinstance(data, list):
+            return "\n".join(str(item) for item in data)
+        else:
+            return str(data)
+
+    def _extract_text_from_file(self, file_path: str) -> str:
+        if file_path.endswith(".pdf"):
+            return self._extract_text_from_pdf(file_path)
+        elif file_path.endswith(".txt"):
+            return self._extract_text_from_txt(file_path)
+        elif file_path.endswith(".json"):
+            return self._extract_text_from_json(file_path)
+        else:
+            raise ValueError(f"Unsupported file type: {file_path}")
+
+    def _extract_all_files_text(self, file_paths: List[str]) -> str:
+        all_texts = []
+        for path in file_paths:
+            try:
+                all_texts.append(self._extract_text_from_file(path))
+            except Exception as e:
+                if self.verbose:
+                    print(f"Failed to process {path}: {e}")
+        return "\n\n".join(all_texts).strip()
+
+    def _parse_manual_input(self, manual_text: str) -> dict:
+        fields = {
+            "client_persona": "Unknown",
+            "client_priorities": "Not specified",
+            "client_values": "Not specified"
         }
-        response = self.chain.run(input_data)
-        return response
 
-    def extract_client_information(self, conversation: str) -> dict:
-        """
-        Extracts client name, title, and characteristics from a conversation transcript.
+        for line in manual_text.splitlines():
+            if ":" in line:
+                key, val = line.split(":", 1)
+                key = key.strip().lower()
+                val = val.strip()
+                if "persona" in key:
+                    fields["client_persona"] = val
+                elif "priorities" in key:
+                    fields["client_priorities"] = val
+                elif "values" in key:
+                    fields["client_values"] = val
 
-        Args:
-            conversation: A string containing the conversation transcript.
+        return fields
 
-        Returns:
-            A dictionary containing the client's name, title, and characteristics.
-        """
-        extract_prompt_template = """You are an expert at extracting information from conversations.
+    def run(self, manual_input_text: Optional[str] = None, transcript_file_paths: Optional[List[str]] = None) -> str:
+        if not manual_input_text and not transcript_file_paths:
+            raise ValueError("At least manual_input_text or transcript_file_paths must be provided.")
 
-        You are given the following conversation transcript:
-        {conversation}
+        # Extract fields from manual input
+        manual_fields = {
+            "client_persona": "Unknown",
+            "client_priorities": "Not specified",
+            "client_values": "Not specified"
+        }
+        if manual_input_text:
+            manual_fields = self._parse_manual_input(manual_input_text)
 
-        Your task is to extract the following information about the client:
-        1. Client Name: The name of the client.
-        2. Client Title: The client's job title.
-        3. Client Characteristics: A brief description of the client's personality, communication style, priorities, and background.
+        # Extract client tone from transcript files
+        client_tone = ""
+        if transcript_file_paths:
+            client_tone = self._extract_all_files_text(transcript_file_paths)
 
-        Provide the information in the following format:
-        Client Name: [Client Name]
-        Client Title: [Client Title]
-        Client Characteristics: [Client Characteristics]"""
+        # Final input for the prompt template
+        input_data = {
+            "client_persona": manual_fields["client_persona"],
+            "client_priorities": manual_fields["client_priorities"],
+            "client_values": manual_fields["client_values"],
+            "client_tone": client_tone.strip() or "Not specified"
+        }
 
-        extract_prompt = PromptTemplate(
-            input_variables=["conversation"],
-            template=extract_prompt_template,
-        )
-
-        extract_chain = LLMChain(llm=self.llm, prompt=extract_prompt)
-        information = extract_chain.run(conversation)
-
-        try:
-            client_name = information.split("Client Name: ")[1].split("\n")[0].strip()
-            client_title = information.split("Client Title: ")[1].split("\n")[0].strip()
-            client_characteristics = information.split("Client Characteristics: ")[1].strip()
-            return {
-                "client_name": client_name,
-                "client_title": client_title,
-                "client_characteristics": client_characteristics,
-            }
-        except IndexError:
-            print("Error: Could not extract client information from the conversation.")
-            return {
-                "client_name": "Unknown",
-                "client_title": "Unknown",
-                "client_characteristics": "No information available.",
-            }
-
-# Removed the `if __name__ == "__main__":` block
+        return self.chain.run(input_data)

@@ -1,27 +1,34 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 import logging
 from fastapi.middleware.cors import CORSMiddleware
 import json
-# Import the agent modules
+import os
+import tempfile
+from typing import Optional, List
 from agents.client_representative_agent import ClientRepresentativeAgent
 from agents.client_representative_creator_agent import ClientRepresentativeCreatorAgent
 from agents.interview_report_creator_agent import InterviewReportCreatorAgent
 from agents.job_description_writer_agent import JobDescriptionWriterAgent
 from agents.market_intelligence_agent import MarketIntelligenceAgent
-
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from typing import List
+import shutil
+import os
+import uuid
+import tempfile
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
-
+ 
 #CORS Configuration
 origins = [
     "*", #USE AT YOUR OWN RISK
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "https://executive-multi-agent-frontend.vercel.app", # Add the Vercel URL,
-    "https://45c9-2405-201-4021-112e-1c1-1dcb-3765-8318.ngrok-free.app"  # Replace with your ngrok URL (e.g., "https://your-ngrok-url.ngrok-free.app")
+    "https://bb45-2405-201-4021-112e-a09c-f089-f179-f075.ngrok-free.app"  # Replace with your ngrok URL (e.g., "https://your-ngrok-url.ngrok-free.app")
 ]
 
 app.add_middleware(
@@ -37,27 +44,74 @@ async def root():
     return {"message": "Hello World"}
 
 @app.post("/market_intelligence")
-async def get_market_intelligence(conversation_file: UploadFile = File(...)):
-    print("Market Intelligence")
+async def get_market_intelligence(
+    company_information: str = Form(""),
+    supporting_documents: list[UploadFile] = File([])
+):
+    print(f"Received company_information: {company_information}")
+    print(f"Number of supporting documents: {len(supporting_documents)}")
+    for doc in supporting_documents:
+        print(f"Received file: {doc.filename} (Content Type: {doc.content_type})")
+
     try:
-        # Read the content directly from the file
-        content = await conversation_file.read()
-        conversation_text = content.decode("utf-8") #Decode file
 
-        # Run the agent
+        # Initialize the agent
         agent = MarketIntelligenceAgent()
-        market_report = agent.run(conversation_text)
 
-        # Print the output
-        print(f"Market Intelligence Report: {market_report}")
+        loaded_documents = []
 
-        # Save the output to a file
-        output_file_path = "market_report.txt"  # Adjust the filename as needed
-        with open(output_file_path, "w", encoding="utf-8") as f:
+        for doc in supporting_documents:
+            filename = doc.filename.lower()
+
+            # Save the uploaded file to a temporary location
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(doc.filename)[-1]) as tmp:
+                tmp.write(await doc.read())
+                tmp_path = tmp.name
+
+            try:
+                if filename.endswith(".pdf"):
+                    text = agent.load_pdf_from_file(tmp_path)
+                    loaded_documents.append(text)
+
+                elif filename.endswith(".txt"):
+                    with open(tmp_path, "r", encoding="utf-8") as f:
+                        text = f.read()
+                    loaded_documents.append(text)
+
+                elif filename.endswith(".json"):
+                    with open(tmp_path, "r", encoding="utf-8") as f:
+                        json_data = json.load(f)
+                    text = json.dumps(json_data, indent=2)  # Pretty print for LLM readability
+                    loaded_documents.append(text)
+
+                else:
+                    logger.warning(f"Unsupported file format: {doc.filename}")
+
+            except Exception as e:
+                logger.warning(f"Could not process file {doc.filename}: {e}")
+
+        # Combine all loaded documents into one string
+        all_documents_text = "\n".join(loaded_documents)
+
+        # Extract company details
+        company_details = agent.extract_company_details(company_information)
+
+        market_input = {
+            "company_name": company_details.get('company_name', ''),
+            "company_location": company_details.get('company_location', ''),
+            "geography": company_details.get('geography', ''),
+            "supporting_documents": all_documents_text,
+            "role": agent.role,
+            "goal": agent.goal
+        }
+
+        market_report = agent.run(market_input)
+
+        with open("market_report.txt", "w", encoding="utf-8") as f:
             f.write(market_report)
-        logger.info(f"Market intelligence report saved to {output_file_path}")
 
-        # Return result
+        logger.info("Market intelligence report saved to market_report.txt")
+
         return {"market_report": market_report}
 
     except Exception as e:
@@ -65,110 +119,147 @@ async def get_market_intelligence(conversation_file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/job_description/")
-async def create_job_description(market_report_file: UploadFile = File(...), transcript_file: UploadFile = File(...)):
+async def create_job_description(
+    manual_input: str = Form(""),
+    files: List[UploadFile] = File([])
+):
+    logger.info(f"Received manual_input: {manual_input[:100]}...")
+    logger.info(f"Number of uploaded files: {len(files)}")
+
     try:
-        # Read the market report from the file
-        market_report_content = await market_report_file.read()
-        market_intelligence = market_report_content.decode("utf-8")
+        agent = JobDescriptionWriterAgent(verbose=True)
+        loaded_documents = []
 
-        # Read the transcript content from the file
-        transcript_content = await transcript_file.read()
-        call_transcript = transcript_content.decode("utf-8")
+        for file in files:
+            filename = file.filename.lower()
+            suffix = os.path.splitext(filename)[-1]
 
-        # Run the agent with the market report and transcript
-        agent = JobDescriptionWriterAgent()
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                tmp.write(await file.read())
+                tmp_path = tmp.name
 
-        # Extract details from the transcript
-        job_details = agent.extract_job_details(call_transcript)
-        job_title = job_details.get('job_title', 'Unknown Job Title')
-        client_name = job_details.get('client_name', 'Unknown Client')
-        job_spec = job_details.get('job_spec', 'No Job Specification')
-        additional_documents = job_details.get('additional_documents', 'No additional documents')
+            try:
+                label = f"\n--- File: {filename} ---\n"
 
-        jd_input = {
-            "job_title": job_title,
-            "client_name": client_name,
-            "market_intelligence": market_intelligence,
-            "call_transcript": call_transcript,
-            "job_spec": job_spec,
-            "additional_documents": additional_documents,
-            "role": agent.role,
-            "goal": agent.goal
-        }
+                if filename.endswith(".pdf"):
+                    text = agent._extract_text_from_pdf(tmp_path)
+                elif filename.endswith(".txt"):
+                    with open(tmp_path, "r", encoding="utf-8") as f:
+                        text = f.read()
+                elif filename.endswith(".json"):
+                    text = agent._extract_transcript_from_json(tmp_path)
+                else:
+                    logger.warning(f"Unsupported file format: {filename}")
+                    continue
 
-        job_description = agent.run(jd_input)
+                loaded_documents.append(label + text)
 
+            except Exception as e:
+                logger.warning(f"Could not process file {filename}: {e}")
+
+        # Combine all text segments
+        combined_text = "\n".join(loaded_documents).strip()
+
+        job_description = agent.chain.run({
+            "manual_input": manual_input,
+            "file_text": combined_text
+        })
+
+        logger.info("Job description generated successfully.")
         return {"job_description": job_description}
 
     except Exception as e:
-        logger.exception(f"Error creating job description: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
+        logger.exception("Error generating job description")
+        raise HTTPException(status_code=500, detail=f"Error generating JD: {str(e)}")
 
 @app.post("/client_feedback")
 async def get_client_feedback(
-    job_description_file: UploadFile = File(...),
-    transcript_file: UploadFile = File(...)
+    manual_input_text: Optional[str] = Form(None, description="Client persona, priorities, values in a single text input"),
+    transcript_files: Optional[List[UploadFile]] = File(None, description="Multiple transcript files (PDF, TXT, JSON)")
 ):
+    temp_file_paths = []
+
     try:
-        # Read the job description from the file
-        job_description_content = await job_description_file.read()
-        job_description = job_description_content.decode("utf-8")
+        # Validate: at least one input must be present
+        if not manual_input_text and not transcript_files:
+            raise HTTPException(status_code=400, detail="You must provide either manual_input_text, transcript_files, or both.")
 
-        # Read and parse the transcript JSON file
-        transcript_content = await transcript_file.read()
-        try:
-            transcript_data = json.loads(transcript_content)
-        except json.JSONDecodeError as e:
-            raise HTTPException(status_code=400, detail=f"Invalid JSON in transcript_file: {e}")
+        # Save uploaded transcript files temporarily if any
+        if transcript_files:
+            for file in transcript_files:
+                contents = await file.read()
+                with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{file.filename}") as tmp:
+                    tmp.write(contents)
+                    temp_file_paths.append(tmp.name)
 
-        # Convert the transcript json data into string
-        transcript = json.dumps(transcript_data)
-
-        agent = ClientRepresentativeAgent()
-        client_info = agent.extract_client_information(transcript)
-
-        client_feedback = agent.run(
-            client_info["client_name"],
-            client_info["client_title"],
-            client_info["client_characteristics"],
-            job_description
+        # Run agent
+        agent = ClientRepresentativeAgent(verbose=True)
+        client_prompt = agent.run(
+            manual_input_text=manual_input_text,
+            transcript_file_paths=temp_file_paths if temp_file_paths else None
         )
-        return {"client_feedback": client_feedback}
+
+        return {"generated_prompt": client_prompt}
+
     except Exception as e:
-        logger.exception(f"Error getting client feedback: {e}")
+        logger.exception(f"Error generating client representative prompt: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+    finally:
+        # Clean up temp files
+        for path in temp_file_paths:
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                except Exception as cleanup_error:
+                    logger.warning(f"Could not delete temp file {path}: {cleanup_error}")
 
 @app.post("/interview_report/")
 async def create_interview_report(
-    job_description_file: UploadFile = File(...),
-    candidate_cv_file: UploadFile = File(...),
-    interview_transcript_file: UploadFile = File(...)
+    manual_input: Optional[str] = Form(None, description="Structured input with ---JOB SPEC---, ---CANDIDATE CV---, ---INTERVIEW TRANSCRIPT---"),
+    files: Optional[List[UploadFile]] = File(None, description="Job spec, CV, or transcript files (.pdf, .txt, .json)")
 ):
+    temp_file_paths = []
+
     try:
-        # Read the content of each file
-        job_description_content = await job_description_file.read()
-        job_description = job_description_content.decode("utf-8")
+        # Validate input presence
+        if not manual_input and not files:
+            raise HTTPException(
+                status_code=400,
+                detail="You must provide either manual_input or file attachments, or both."
+            )
 
-        candidate_cv_content = await candidate_cv_file.read()
-        candidate_cv = candidate_cv_content.decode("utf-8")
+        attachment_paths = []
 
-        interview_transcript_content = await interview_transcript_file.read()
-        interview_transcript = interview_transcript_content.decode("utf-8")
+        if files:
+            for upload_file in files:
+                content_bytes = await upload_file.read()
+                suffix = os.path.splitext(upload_file.filename)[-1]
+                tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+                tmp_file.write(content_bytes)
+                tmp_file.close()
+                temp_file_paths.append(tmp_file.name)
+                attachment_paths.append(tmp_file.name)
 
-        # Create the interview report using the agent
-        agent = InterviewReportCreatorAgent()
+        # Initialize and run the agent
+        agent = InterviewReportCreatorAgent(verbose=True)
         report = agent.run(
-            job_description,
-            candidate_cv,
-            interview_transcript,
-            "" # leave the assessor value empty
+            manual_input=manual_input or "",
+            attachment_paths=attachment_paths if attachment_paths else None
         )
+
         return {"interview_report": report}
 
     except Exception as e:
         logger.exception(f"Error creating interview report: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+    finally:
+        for path in temp_file_paths:
+            try:
+                os.remove(path)
+            except Exception as cleanup_error:
+                logger.warning(f"Could not delete temp file {path}: {cleanup_error}")
 
 @app.post("/client_characteristics/")
 async def create_client_characteristics(user_input_file: UploadFile = File(...)):

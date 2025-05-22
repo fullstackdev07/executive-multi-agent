@@ -1,4 +1,4 @@
- AI Engineer at N/A
+AI Engineer at N/A
 
 N/A is seeking a talented AI Engineer to join our team and drive innovation in the healthcare industry. With the potential of AI to automate tasks and improve diagnostics, we are looking for a skilled individual who can help us disrupt the market and compete with big players like Google and IBM.
 
@@ -17,6 +17,3 @@ Required Skills:
 - Experience with cloud platforms, specifically AWS or Azure.
 - Strong problem-solving and analytical skills.
 - Excellent communication and collaboration abilities.
-
-Company Culture:
-At N
