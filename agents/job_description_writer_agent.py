@@ -19,35 +19,35 @@ class JobDescriptionWriterAgent:
 
     def _create_prompt(self) -> PromptTemplate:
         template = """
-You are an expert job description writer.
+    You are an expert job description writer.
 
-Below is a summary of inputs provided for the JD:
+    Below is a summary of inputs provided for the JD:
 
-{manual_input}
+    {manual_input}
 
-Below is supporting information extracted from documents and transcripts:
+    Below is supporting information extracted from documents and transcripts:
 
-{file_text}
+    {file_text}
 
-Write a compelling job description using the following structure:
+    Write a compelling job description using the following structure:
 
-### 1. Current Situation (200–300 words)
-- Describe the company, its history, context, and strategic goals.
-- Explain why this role is relevant now.
+    ### 1. Current Situation (300–350 words)
+    - Describe the company, its history, context, and strategic goals.
+    - Explain why this role is relevant now.
 
-### 2. The Position (200–300 words)
-- Responsibilities, scope, expected contributions.
-- Include explicit and inferred tasks.
-- Mix prose and bullet points.
+    ### 2. The Position (300–350 words)
+    - Responsibilities, scope, expected contributions.
+    - Include explicit and inferred tasks.
+    - Mix prose and bullet points.
 
-### 3. Candidate Profile (200–300 words)
-- Required qualifications, experience, and traits.
-- Help readers assess fit.
+    ### 3. Candidate Profile (300–350 words)
+    - Required qualifications, experience, and traits.
+    - Help readers assess fit.
 
-Use fluent, professional third-person tone throughout. Each section must be 200–300 words.
+    Use fluent, professional third-person tone throughout. Each section must be 300–350 words.
 
-Begin the job description below:
-"""
+    Begin the job description below:
+    """
         return PromptTemplate(
             input_variables=["manual_input", "file_text"],
             template=template

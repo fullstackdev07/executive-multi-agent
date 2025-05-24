@@ -183,21 +183,21 @@ class InterviewReportCreatorAgent:
     def _create_prompt(self):
         template = """You are {role}. Your goal is {goal}.
 
-Write a 300-word interview report following this structure:
-1. A global description of the candidate, starting with a general statement (e.g. "XXX is a very metropolitan and well educated candidate..."), followed by a summary of their experience.
-2. A paragraph that outlines their career development and how it aligns with the current role.
-3. A paragraph that summarizes the consultant's recommendation, and highlights any areas that need further exploration.
+        Write a 300-word interview report following this structure:
+        1. A global description of the candidate, starting with a general statement (e.g. "XXX is a very metropolitan and well educated candidate..."), followed by a summary of their experience.
+        2. A paragraph that outlines their career development and how it aligns with the current role.
+        3. A paragraph that summarizes the consultant's recommendation, and highlights any areas that need further exploration.
 
-Here is the job description: {job_spec}
+        Here is the job description: {job_spec}
 
-Here is the role scorecard (if available): {scorecard}
+        Here is the role scorecard (if available): {scorecard}
 
-Here is the candidate's CV: {candidate_cv}
+        Here is the candidate's CV: {candidate_cv}
 
-Here is the interview transcript: {interview_transcript}
+        Here is the interview transcript: {interview_transcript}
 
-Here is the consultant's assessment (weigh this heavily): {consultant_assessment}
-"""
+        Here is the consultant's assessment (weigh this heavily): {consultant_assessment}
+        """
         self.prompt_template = PromptTemplate(
             input_variables=[
                 "role",

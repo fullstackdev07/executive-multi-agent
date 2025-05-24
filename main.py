@@ -2,6 +2,7 @@ from fastapi import FastAPI, File, UploadFile, Form, HTTPException, APIRouter
 import logging
 from fastapi.middleware.cors import CORSMiddleware
 import json
+import io
 import os
 import tempfile
 from typing import Optional, List
@@ -16,6 +17,7 @@ import shutil
 import os
 import uuid
 import tempfile
+import fitz
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -221,43 +223,93 @@ async def get_client_feedback(
             except Exception as cleanup_error:
                 logger.warning(f"Could not delete temp file {path}: {cleanup_error}")
 
+# @app.post("/client_feedback/")
+# async def create_client_characteristics(
+#     user_input: str = Form(""),
+#     files: List[UploadFile] = File(default=[])
+# ):
+#     try:
+#         file_contents = {}
+#         for file in files:
+#             try:
+#                 content = await file.read()
+#                 file_contents[file.filename] = content
+#             except Exception as e:
+#                 logger.warning(f"Could not read {file.filename}: {e}")
 
+#         temp_paths = []
+#         for filename, content in file_contents.items():
+#             ext = filename.split('.')[-1].lower()
+#             if ext in ["txt", "pdf", "json"]:
+#                 path = f"{filename}"
+#                 with open(path, "wb") as f:
+#                     f.write(content)
+#                 temp_paths.append(path)
+
+#         agent = ClientRepresentativeAgent(verbose=True)
+
+#         # Pass files if they exist, else None
+#         if temp_paths:
+#             response = agent.run(input_statement=user_input.strip(), files=temp_paths)
+#         else:
+#             response = agent.run(input_statement=user_input.strip())
+
+#         return {"client_representative_feedback": response}
+
+#     except Exception as e:
+#         logger.exception(f"Error processing client characteristics: {e}")
+#         raise HTTPException(status_code=500, detail=str(e))
 @app.post("/client_feedback/")
 async def create_client_characteristics(
     user_input: str = Form(""),
     files: List[UploadFile] = File(default=[])
 ):
+
+    print(f"Received files: {files}")
     try:
-        file_contents = {}
+        extracted_texts = []
+
         for file in files:
             try:
+                filename = file.filename
+                ext = filename.split('.')[-1].lower()
                 content = await file.read()
-                file_contents[file.filename] = content
-            except Exception as e:
-                logger.warning(f"Could not read {file.filename}: {e}")
 
-        temp_paths = []
-        for filename, content in file_contents.items():
-            ext = filename.split('.')[-1].lower()
-            if ext in ["txt", "pdf", "json"]:
-                path = f"{filename}"
-                with open(path, "wb") as f:
-                    f.write(content)
-                temp_paths.append(path)
+                if ext == "pdf":
+                    # Use BytesIO for PDF handling
+                    with fitz.open(stream=io.BytesIO(content), filetype="pdf") as doc:
+                        pdf_text = ""
+                        for page in doc:
+                            pdf_text += page.get_text()
+                        extracted_texts.append(pdf_text)
+
+                elif ext == "txt":
+                    extracted_texts.append(content.decode("utf-8"))
+
+                elif ext == "json":
+                    json_data = json.loads(content.decode("utf-8"))
+                    pretty_json = json.dumps(json_data, indent=2)
+                    extracted_texts.append(pretty_json)
+
+                else:
+                    logger.warning(f"Unsupported file type: {filename}")
+
+            except Exception as file_error:
+                logger.warning(f"Could not process {file.filename}: {file_error}")
+
+        # Combine all text
+        combined_input = user_input.strip()
+        if extracted_texts:
+            combined_input += "\n\n" + "\n\n".join(extracted_texts)
 
         agent = ClientRepresentativeAgent(verbose=True)
-
-        # Pass files if they exist, else None
-        if temp_paths:
-            response = agent.run(input_statement=user_input.strip(), files=temp_paths)
-        else:
-            response = agent.run(input_statement=user_input.strip())
-
+        response = agent.run(input_statement=combined_input)
+        
         return {"client_representative_feedback": response}
 
     except Exception as e:
-        logger.exception(f"Error processing client characteristics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Error processing client characteristics")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
 
 @app.post("/interview_report")
 async def create_interview_report(
