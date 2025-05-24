@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import json
-import requests  # For web scraping (if needed)
+import requests
 import re
 from langchain_community.chat_models import ChatOpenAI
 from langchain_community.document_loaders import PyPDFLoader

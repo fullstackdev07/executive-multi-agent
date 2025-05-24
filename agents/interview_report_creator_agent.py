@@ -176,7 +176,7 @@ class InterviewReportCreatorAgent:
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         if not self.openai_api_key:
             raise ValueError("OPENAI_API_KEY not found.")
-        self.llm = OpenAI(openai_api_key=self.openai_api_key, temperature=0.7)
+        self.llm = OpenAI(openai_api_key=self.openai_api_key, temperature=0.7, max_tokens=3500)
         self._create_prompt()
         self._create_chain()
 
@@ -212,7 +212,7 @@ class InterviewReportCreatorAgent:
         )
 
     def _create_chain(self):
-        self.chain = LLMChain(llm=self.llm, prompt=self.prompt_template)
+        self.chain = LLMChain(llm=self.llm, prompt=self.prompt_template,)
 
     def _read_pdf(self, path):
         reader = PdfReader(path)
