@@ -1,23 +1,12 @@
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException, APIRouter
-import logging
+import logging, os, tempfile, json, io, shutil, uuid, fitz
 from fastapi.middleware.cors import CORSMiddleware
-import json
-import io
-import os
-import tempfile
 from typing import Optional, List
 from agents.client_representative_agent import ClientRepresentativeAgent
 from agents.client_representative_creator_agent import ClientRepresentativeCreatorAgent
 from agents.interview_report_creator_agent import InterviewReportCreatorAgent
 from agents.job_description_writer_agent import JobDescriptionWriterAgent
 from agents.market_intelligence_agent import MarketIntelligenceAgent
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from typing import List
-import shutil
-import os
-import uuid
-import tempfile
-import fitz
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
