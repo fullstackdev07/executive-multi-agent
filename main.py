@@ -223,89 +223,49 @@ async def get_client_feedback(
             except Exception as cleanup_error:
                 logger.warning(f"Could not delete temp file {path}: {cleanup_error}")
 
-# @app.post("/client_feedback/")
-# async def create_client_characteristics(
-#     user_input: str = Form(""),
-#     files: List[UploadFile] = File(default=[])
-# ):
-#     try:
-#         file_contents = {}
-#         for file in files:
-#             try:
-#                 content = await file.read()
-#                 file_contents[file.filename] = content
-#             except Exception as e:
-#                 logger.warning(f"Could not read {file.filename}: {e}")
-
-#         temp_paths = []
-#         for filename, content in file_contents.items():
-#             ext = filename.split('.')[-1].lower()
-#             if ext in ["txt", "pdf", "json"]:
-#                 path = f"{filename}"
-#                 with open(path, "wb") as f:
-#                     f.write(content)
-#                 temp_paths.append(path)
-
-#         agent = ClientRepresentativeAgent(verbose=True)
-
-#         # Pass files if they exist, else None
-#         if temp_paths:
-#             response = agent.run(input_statement=user_input.strip(), files=temp_paths)
-#         else:
-#             response = agent.run(input_statement=user_input.strip())
-
-#         return {"client_representative_feedback": response}
-
-#     except Exception as e:
-#         logger.exception(f"Error processing client characteristics: {e}")
-#         raise HTTPException(status_code=500, detail=str(e))
 @app.post("/client_feedback/")
 async def create_client_characteristics(
     user_input: str = Form(""),
     files: List[UploadFile] = File(default=[])
 ):
+    extracted_texts = []
+    filepaths = []
 
-    print(f"Received files: {files}")
     try:
-        extracted_texts = []
-
+        #Save the files, and extract the paths
         for file in files:
             try:
-                filename = file.filename
-                ext = filename.split('.')[-1].lower()
-                content = await file.read()
+                contents = await file.read()
+                #Save to temporary file
+                temp_file_path = f"temp_{file.filename}" #You need to implement this
+                with open(temp_file_path, "wb") as f:
+                    f.write(contents)
 
-                if ext == "pdf":
-                    # Use BytesIO for PDF handling
-                    with fitz.open(stream=io.BytesIO(content), filetype="pdf") as doc:
-                        pdf_text = ""
-                        for page in doc:
-                            pdf_text += page.get_text()
-                        extracted_texts.append(pdf_text)
-
-                elif ext == "txt":
-                    extracted_texts.append(content.decode("utf-8"))
-
-                elif ext == "json":
-                    json_data = json.loads(content.decode("utf-8"))
-                    pretty_json = json.dumps(json_data, indent=2)
-                    extracted_texts.append(pretty_json)
-
-                else:
-                    logger.warning(f"Unsupported file type: {filename}")
+                filepaths.append(temp_file_path) #This is what we will send to the agent
 
             except Exception as file_error:
-                logger.warning(f"Could not process {file.filename}: {file_error}")
+                logger.warning(f"Could not process file {file.filename}: {file_error}")
+                raise HTTPException(status_code=400, detail=f"Could not process file {file.filename}: {file_error}")
 
-        # Combine all text
-        combined_input = user_input.strip()
-        if extracted_texts:
-            combined_input += "\n\n" + "\n\n".join(extracted_texts)
+        # Validate that at least one source of input is present
+        if not user_input.strip() and not filepaths:
+            raise HTTPException(status_code=400, detail="No input or files provided.")
 
+        # Run the agent with combined input
         agent = ClientRepresentativeAgent(verbose=True)
-        response = agent.run(input_statement=combined_input)
-        
+        response = agent.run(input_statement=user_input, transcript_file_paths=filepaths)
+
+        #Delete all created files
+        for path in filepaths:
+            try:
+                os.remove(path)
+            except:
+                logger.warning(f"Cannot delete file {path}")
+
         return {"client_representative_feedback": response}
+
+    except HTTPException as http_exception:
+        raise http_exception
 
     except Exception as e:
         logger.exception("Error processing client characteristics")
