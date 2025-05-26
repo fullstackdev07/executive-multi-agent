@@ -1,4 +1,5 @@
 import os
+import re
 from typing import Optional, List
 from dotenv import load_dotenv
 from langchain_community.llms import OpenAI
@@ -12,20 +13,21 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
 class ClientRepresentativeAgent:
     def __init__(self, verbose: bool = False):
         self.verbose = verbose
-        load_dotenv() # Load environment variables
+        load_dotenv()
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         if not self.openai_api_key:
             logger.error("OpenAI API key not found in environment variables.")
-            raise ValueError("OPENAI_API_KEY not found.  Set environment variable.") # Prevents agent initialization
+            raise ValueError("OPENAI_API_KEY not found. Set environment variable.")
 
         try:
             self.llm = OpenAI(openai_api_key=self.openai_api_key, temperature=0.7, max_tokens=3000)
         except Exception as e:
             logger.exception(f"Error initializing OpenAI LLM: {e}")
-            raise  # Re-raise the exception to prevent agent from working.
+            raise
 
         self._create_extraction_prompt()
         self._create_feedback_prompt()
@@ -33,21 +35,21 @@ class ClientRepresentativeAgent:
 
     def _create_extraction_prompt(self):
         self.extraction_template = PromptTemplate(
-            input_variables=["input_statement"],
+            input_variables=["user_input"],
             template="""
-    From the following statement, infer the client's characteristics:
+From the following statement, infer the client's characteristics:
 
-    Statement:
-    {input_statement}
+Statement:
+{user_input}
 
-    Return as JSON:
-    {{
-        "client_persona": "...",
-        "client_priorities": "...",
-        "client_values": "...",
-        "client_tone": "..."
-    }}
-    """
+Return as JSON:
+{{
+    "client_persona": "...",
+    "client_priorities": "...",
+    "client_values": "...",
+    "client_tone": "..."
+}}
+"""
         )
 
     def _create_feedback_prompt(self):
@@ -60,91 +62,91 @@ class ClientRepresentativeAgent:
                 "input_to_review",
             ],
             template="""
-    You are a Client Representative in a project. Review the following input as if you were the client.
+You are a Client Representative in a project. Review the following input as if you were the client.
 
-    Client Persona: {client_persona}  
-    Client Priorities: {client_priorities}  
-    Client Values: {client_values}  
-    Client Tone and Style: {client_tone}  
+Client Persona: {client_persona}  
+Client Priorities: {client_priorities}  
+Client Values: {client_values}  
+Client Tone and Style: {client_tone}  
 
-    Input to Review:  
-    {input_to_review}
+Input to Review:  
+{input_to_review}
 
-    Your job:
-    - Emulate the client's tone
-    - Reflect their priorities and values
-    - Offer constructive feedback
-    - Ask for clarity or express concerns
-    - Be specific and helpful
+Your job:
+- Emulate the client's tone
+- Reflect their priorities and values
+- Offer constructive feedback
+- Ask for clarity or express concerns
+- Be specific and helpful
 
-    Write a thorough response of approximately **500 words** that reflects how the client would engage with this input.
-    Include:
-    - Clear feedback on alignment with goals and tone
-    - Specific strengths and weaknesses
-    - Clarifying questions if needed
-    - Suggestions for improvement or refinement
+Write a thorough response of approximately **500 words** that reflects how the client would engage with this input.
+Include:
+- Clear feedback on alignment with goals and tone
+- Specific strengths and weaknesses
+- Clarifying questions if needed
+- Suggestions for improvement or refinement
 
-    Client Representative Feedback:
-    """
+Client Representative Feedback:
+"""
         )
 
     def _create_chains(self):
         self.extraction_chain = LLMChain(llm=self.llm, prompt=self.extraction_template)
         self.feedback_chain = LLMChain(llm=self.llm, prompt=self.feedback_template)
 
-    def run(self, input_statement: str, transcript_file_paths: Optional[list[str]] = None) -> str:
-        logger.info(f"Agent running with input: {input_statement[:100]}...") # Log initial input
-        combined_input = input_statement or ""
+    def run(self, user_input: str, files: Optional[List[str]] = None) -> str:
+        logger.info(f"Agent running with input: {user_input[:100]}...")
 
-        # If files are provided, extract and append their content
-        if transcript_file_paths:
-            logger.info(f"Processing transcript files: {transcript_file_paths}")  # Log file paths
-            for file_path in transcript_file_paths:
+        # 1. Input sanity checks
+        if not user_input or len(user_input.strip()) < 10:
+            warning = "⚠️ It seems your input is too short or unclear. Please provide a more meaningful client description."
+            logger.warning(warning)
+            return warning
+
+        if not re.search(r"[a-zA-Z]{3,}", user_input):
+            warning = "⚠️ I couldn't understand your input. Please describe the client using clear and meaningful language."
+            logger.warning(warning)
+            return warning
+
+        # 2. Combine input with transcript files if provided
+        combined_input = user_input.strip()
+        if files:
+            logger.info(f"Processing transcript files: {files}")
+            for file_path in files:
                 try:
                     ext = os.path.splitext(file_path)[-1].lower()
                     if ext == ".pdf":
-                        # Extract text from PDF
-                        try:
-                            with fitz.open(file_path) as doc:
-                                pdf_text = "".join(page.get_text() for page in doc)
-                            combined_input += "\n" + pdf_text
-                            logger.info(f"Successfully extracted text from PDF: {file_path}")
-                        except Exception as pdf_e:
-                            logger.error(f"Failed to extract text from PDF {file_path}: {pdf_e}")
-                            if self.verbose:
-                                print(f"Failed to read PDF file {file_path}: {pdf_e}")  #Keep verbose output.
-
+                        with fitz.open(file_path) as doc:
+                            pdf_text = "".join(page.get_text() for page in doc)
+                        combined_input += "\n" + pdf_text
+                        logger.info(f"Successfully extracted text from PDF: {file_path}")
                     elif ext == ".txt":
-                        try:
-                            with open(file_path, "r", encoding="utf-8") as f:
-                                txt_text = f.read()
-                            combined_input += "\n" + txt_text
-                            logger.info(f"Successfully read text from TXT: {file_path}")
-                        except Exception as txt_e:
-                            logger.error(f"Failed to read text from TXT {file_path}: {txt_e}")
-                            if self.verbose:
-                                print(f"Failed to read TXT file {file_path}: {txt_e}")
-
+                        with open(file_path, "r", encoding="utf-8") as f:
+                            txt_text = f.read()
+                        combined_input += "\n" + txt_text
+                        logger.info(f"Successfully read text from TXT: {file_path}")
                     else:
                         logger.warning(f"Skipping unsupported file type: {file_path}")
                         if self.verbose:
                             print(f"Skipping unsupported file type: {file_path}")
                 except Exception as e:
-                    logger.error(f"General file processing error for {file_path}: {e}") #Catch file reading exceptions.
+                    logger.error(f"Failed to process {file_path}: {e}")
                     if self.verbose:
                         print(f"Failed to read file {file_path}: {e}")
 
-        logger.info(f"Combined input after file processing: {combined_input[:200]}...")  # Log combined input
-        # Step 1: Extract client persona, tone, values, priorities
+        logger.info(f"Combined input after file processing: {combined_input[:200]}...")
+
+        # 3. Run extraction chain
         try:
-            extracted_json_str = self.extraction_chain.run({"input_statement": combined_input})
-            logger.info(f"Extracted JSON string: {extracted_json_str}") #Log output
+            extracted_json_str = self.extraction_chain.run({"user_input": combined_input})
+            logger.info(f"Extracted JSON string: {extracted_json_str}")
             if self.verbose:
                 print("Extracted Traits:\n", extracted_json_str)
         except Exception as extraction_error:
             logger.error(f"Error during extraction chain run: {extraction_error}")
             raise ValueError(f"Error during extraction: {extraction_error}")
 
+        # 4. Parse JSON
         try:
             extracted_data = json.loads(extracted_json_str)
         except json.JSONDecodeError as e:
@@ -154,7 +156,7 @@ class ClientRepresentativeAgent:
             logger.error(f"Failed to parse extracted client data (General Exception): {e}")
             raise ValueError(f"Failed to parse extracted client data: {e}")
 
-        # Step 2: Generate feedback using inferred traits
+        # 5. Generate feedback
         feedback_input = {
             **extracted_data,
             "input_to_review": combined_input.strip()

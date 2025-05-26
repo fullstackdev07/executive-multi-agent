@@ -1,4 +1,4 @@
-import os
+import os , re
 from typing import List, Optional
 from dotenv import load_dotenv
 from langchain_community.llms import OpenAI
@@ -89,10 +89,14 @@ Prompt:"""
             transcript_file_paths (List[str], optional): Optional list of transcript files to enrich tone.
 
         Returns:
-            str: A paragraph prompt emulating the client.
+            str: A paragraph prompt emulating the client or a warning message for unclear input.
         """
-        if not client_description:
-            raise ValueError("Client description must be provided.")
+        if not client_description or len(client_description.strip()) < 10:
+            return "⚠️ It seems you didn't provide a meaningful client description. Please try again with more details."
+
+        # Check for gibberish using a basic heuristic
+        if not re.search(r'[a-zA-Z]{3,}', client_description):
+            return "⚠️ I couldn't understand your input. Please describe the client using clear and meaningful sentences."
 
         client_tone = ""
         if transcript_file_paths:

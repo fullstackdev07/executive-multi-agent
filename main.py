@@ -287,7 +287,7 @@ async def create_interview_report(
                 detail="You must provide either input_text, file attachments, or both."
             )
 
-        attachment_paths = []
+        files = []
 
         if files:
             for upload_file in files:
@@ -297,13 +297,13 @@ async def create_interview_report(
                 tmp_file.write(content_bytes)
                 tmp_file.close()
                 temp_file_paths.append(tmp_file.name)
-                attachment_paths.append(tmp_file.name)
+                files.append(tmp_file.name)
 
         # Run the report generator
         agent = InterviewReportCreatorAgent(verbose=True)
         report = agent.run(
             input_text=input_text or "",
-            attachment_paths=attachment_paths if attachment_paths else None
+            files=files if files else None
         )
 
         return {"interview_report": report}
