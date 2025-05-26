@@ -6,6 +6,7 @@ from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from PyPDF2 import PdfReader
 import json
+from utils.agent_prompt_utils import inject_guidance
 
 load_dotenv()
 
@@ -38,7 +39,7 @@ Prompt:"""
 
         self.prompt_template = PromptTemplate(
             input_variables=["client_description", "client_tone"],
-            template=template,
+            template=inject_guidance(template)
         )
 
     def _create_chain(self) -> None:

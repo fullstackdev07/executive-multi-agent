@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 import os, json, fitz
 from typing import List
 import tiktoken
+from utils.agent_prompt_utils import inject_guidance
 
 load_dotenv()
 
@@ -56,7 +57,7 @@ Begin the job description below:
 """
         return PromptTemplate(
             input_variables=["manual_input", "file_text"],
-            template=template
+            template=inject_guidance(template)
         )
 
     def run(self, manual_input: str, file_paths: List[str]) -> str:
