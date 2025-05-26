@@ -242,7 +242,7 @@ async def create_client_characteristics(
 
         # Run the agent with combined input
         agent = ClientRepresentativeAgent(verbose=True)
-        response = agent.run(input_statement=user_input, transcript_file_paths=filepaths)
+        response = agent.run(user_input=user_input, files=filepaths)
 
         #Delete all created files
         for path in filepaths:
