@@ -306,7 +306,7 @@ async def create_interview_report(
             files=files if files else None
         )
 
-        return {"interview_report": report}
+        return report
 
     except Exception as e:
         logger.exception(f"Error creating interview report: {e}")
