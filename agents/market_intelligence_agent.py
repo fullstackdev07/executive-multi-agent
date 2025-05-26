@@ -95,7 +95,7 @@ class MarketIntelligenceAgent:
 
         # Validate company information
         if input_data.get("company_name", "").strip().lower() == "unknown":
-            return json.dumps("Could not extract a valid company name. Please provide more detailed or accurate input.")
+            return "Could not extract a valid company name. Please provide more detailed or accurate input."
 
         response = self.chain.run(input_data)
 
