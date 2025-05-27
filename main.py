@@ -242,7 +242,7 @@ async def create_client_characteristics(
 
         # Run the agent with combined input
         agent = ClientRepresentativeAgent(verbose=True)
-        response = agent.run(user_input=user_input, files=filepaths)
+        response = agent.run(input_statement=user_input, transcript_file_paths=filepaths)
 
         #Delete all created files
         for path in filepaths:
@@ -287,7 +287,7 @@ async def create_interview_report(
                 detail="You must provide either input_text, file attachments, or both."
             )
 
-        files = []
+        attachment_paths = []
 
         if files:
             for upload_file in files:
@@ -297,16 +297,16 @@ async def create_interview_report(
                 tmp_file.write(content_bytes)
                 tmp_file.close()
                 temp_file_paths.append(tmp_file.name)
-                files.append(tmp_file.name)
+                attachment_paths.append(tmp_file.name)
 
         # Run the report generator
         agent = InterviewReportCreatorAgent(verbose=True)
         report = agent.run(
             input_text=input_text or "",
-            files=files if files else None
+            attachment_paths=attachment_paths if attachment_paths else None
         )
 
-        return report
+        return {"interview_report": report}
 
     except Exception as e:
         logger.exception(f"Error creating interview report: {e}")

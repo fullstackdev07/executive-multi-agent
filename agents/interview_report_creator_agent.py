@@ -6,7 +6,6 @@ from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from dotenv import load_dotenv
 from PyPDF2 import PdfReader
-from utils.agent_prompt_utils import inject_guidance
 
 load_dotenv()
 
@@ -53,7 +52,7 @@ class InterviewReportCreatorAgent:
                 "interview_transcript",
                 "consultant_assessment",
             ],
-            template=inject_guidance(template)
+            template=template,
         )
 
     def _create_chain(self):
@@ -90,14 +89,7 @@ class InterviewReportCreatorAgent:
                 print(f"Error reading {file_path}: {e}")
             return ""
 
-    def run(self, input_text: str = "", files: list = None):
-        # Sanity check: prevent meaningless or too short input from proceeding
-        if not input_text or len(input_text.strip()) < 10 or not re.search(r"[a-zA-Z]{3,}", input_text):
-            warning = "\u26a0\ufe0f Your input seems too short or unclear. Please provide a proper interview transcript, CV, or structured text."
-            if self.verbose:
-                print(warning)
-            return {"interview_report": warning}
-
+    def run(self, input_text: str = "", attachment_paths: list = None):
         # Initialize content placeholders
         job_spec = ""
         scorecard = ""
@@ -115,8 +107,8 @@ class InterviewReportCreatorAgent:
         consultant_assessment = parsed_sections["consultant_assessment"]
 
         # Process files if any
-        if files:
-            for path in files:
+        if attachment_paths:
+            for path in attachment_paths:
                 content = self._extract_text_from_file(path)
                 fname = os.path.basename(path).lower()
 

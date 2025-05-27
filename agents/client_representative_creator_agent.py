@@ -1,4 +1,4 @@
-import os , re
+import os
 from typing import List, Optional
 from dotenv import load_dotenv
 from langchain_community.llms import OpenAI
@@ -6,7 +6,6 @@ from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from PyPDF2 import PdfReader
 import json
-from utils.agent_prompt_utils import inject_guidance
 
 load_dotenv()
 
@@ -39,7 +38,7 @@ Prompt:"""
 
         self.prompt_template = PromptTemplate(
             input_variables=["client_description", "client_tone"],
-            template=inject_guidance(template)
+            template=template,
         )
 
     def _create_chain(self) -> None:
@@ -90,14 +89,10 @@ Prompt:"""
             transcript_file_paths (List[str], optional): Optional list of transcript files to enrich tone.
 
         Returns:
-            str: A paragraph prompt emulating the client or a warning message for unclear input.
+            str: A paragraph prompt emulating the client.
         """
-        if not client_description or len(client_description.strip()) < 10:
-            return "⚠️ It seems you didn't provide a meaningful client description. Please try again with more details."
-
-        # Check for gibberish using a basic heuristic
-        if not re.search(r'[a-zA-Z]{3,}', client_description):
-            return "⚠️ I couldn't understand your input. Please describe the client using clear and meaningful sentences."
+        if not client_description:
+            raise ValueError("Client description must be provided.")
 
         client_tone = ""
         if transcript_file_paths:
