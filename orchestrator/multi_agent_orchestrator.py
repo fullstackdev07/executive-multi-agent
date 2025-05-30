@@ -1,132 +1,24 @@
-# from agents.client_representative_agent import ClientRepresentativeAgent
-# from agents.client_representative_creator_agent import ClientRepresentativeCreatorAgent
-# from agents.interview_report_creator_agent import InterviewReportCreatorAgent
-# from agents.job_description_writer_agent import JobDescriptionWriterAgent
-# from agents.market_intelligence_agent import MarketIntelligenceAgent
-# import logging, os
-
-# logger = logging.getLogger(__name__)
-
-# class MultiAgentOrchestrator:
-#     def __init__(self, verbose=False):
-#         self.verbose = verbose
-#         self.market_agent = MarketIntelligenceAgent(verbose=verbose)
-#         self.client_prompt_agent = ClientRepresentativeCreatorAgent(verbose=verbose)
-#         self.jd_agent = JobDescriptionWriterAgent(verbose=verbose)
-#         self.interview_agent = InterviewReportCreatorAgent(verbose=verbose)
-#         self.client_feedback_agent = ClientRepresentativeAgent(verbose=verbose)
-#         if self.verbose:
-#             logger.info("MultiAgentOrchestrator initialized.")
-
-#     def run_pipeline(self, company_info: str, file_paths: list) -> dict:
-#         results = {}
-#         if self.verbose:
-#             logger.info(f"Orchestrator: Starting pipeline with company_info and {len(file_paths)} files.")
-
-#         # 1. Market Intelligence Agent
-#         if self.verbose: logger.info("Orchestrator: Running MarketIntelligenceAgent...")
-#         company_details = self.market_agent.extract_company_details(company_info)
-        
-#         loaded_docs_texts_market = []
-#         for f_path in file_paths:
-#             filename_lower = f_path.lower()
-#             content = None
-#             try:
-#                 if filename_lower.endswith(".pdf"):
-#                     content = self.market_agent.load_pdf_from_file(f_path)
-#                 elif filename_lower.endswith(".txt"):
-#                     content = self.market_agent.load_text_from_file(f_path)
-#                 elif filename_lower.endswith(".json"):
-#                     content = self.market_agent._load_json_as_text_from_file(f_path) # Use the new method
-#                 else:
-#                     if self.verbose:
-#                         logger.warning(f"Orchestrator (MarketAgent): Unsupported file type for {f_path}, skipping.")
-                
-#                 if content:
-#                     loaded_docs_texts_market.append(content)
-#             except Exception as e:
-#                 logger.error(f"Orchestrator (MarketAgent): Error loading file {f_path}: {e}")
-
-#         all_documents_text_for_market = "\n\n---SEPARATOR---\n\n".join(filter(None, loaded_docs_texts_market))
-
-#         market_input = {
-#             "company_name": company_details.get("company_name", "Unknown"),
-#             "company_location": company_details.get("company_location", "Unknown"),
-#             "geography": company_details.get("geography", "Unknown"),
-#             "supporting_documents": all_documents_text_for_market,
-#             "role": self.market_agent.role,
-#             "goal": self.market_agent.goal
-#         }
-#         market_report = self.market_agent.run(market_input)
-#         results["market_report"] = market_report
-#         if self.verbose: logger.info("Orchestrator: MarketIntelligenceAgent finished.")
-
-#         # 2. Client Representative Prompt Creator Agent
-#         if self.verbose: logger.info("Orchestrator: Running ClientRepresentativeCreatorAgent...")
-#         # It can use the market report as a description and original files for tone.
-#         client_prompt = self.client_prompt_agent.run(
-#             client_description=market_report, # Using market_report as initial client description
-#             transcript_file_paths=file_paths # Original files can help infer tone
-#         )
-#         results["client_prompt"] = client_prompt
-#         if self.verbose: logger.info("Orchestrator: ClientRepresentativeCreatorAgent finished.")
-
-#         # 3. Job Description Writer Agent
-#         if self.verbose: logger.info("Orchestrator: Running JobDescriptionWriterAgent...")
-#         # Uses the generated client prompt as manual input and original files as supporting docs
-#         jd = self.jd_agent.run(
-#             manual_input=client_prompt, # Or could be a combination, e.g., market_report + client_prompt
-#             file_paths=file_paths
-#         )
-#         results["job_description"] = jd
-#         if self.verbose: logger.info("Orchestrator: JobDescriptionWriterAgent finished.")
-
-#         # 4. Interview Report Creator Agent
-#         if self.verbose: logger.info("Orchestrator: Running InterviewReportCreatorAgent...")
-#         # Uses the JD as input text, and original files might contain CVs/transcripts
-#         # This assumes 'file_paths' might contain CV, interview notes etc.
-#         # The 'input_text' for interview agent could be the JD, or a placeholder if files are primary.
-#         report = self.interview_agent.run(
-#             input_text=f"Job Description:\n{jd}\n\nOther relevant information might be in attached files.", # Pass JD to it
-#             attachment_paths=file_paths
-#         )
-#         results["interview_report"] = report
-#         if self.verbose: logger.info("Orchestrator: InterviewReportCreatorAgent finished.")
-
-#         # 5. Client Representative Feedback Agent
-#         if self.verbose: logger.info("Orchestrator: Running ClientRepresentativeAgent for feedback...")
-#         # Gets feedback on the generated interview report, using original files for context.
-#         # The input_statement for client feedback agent is the Interview Report.
-#         # The client's characteristics (persona, tone) will be inferred by this agent from the market_report or client_prompt
-#         # and/or the original files.
-#         # Let's use the client_prompt (which embodies client persona) + interview_report to get feedback
-#         feedback_input_statement = f"---CLIENT PERSONA GUIDANCE---\n{client_prompt}\n\n---DOCUMENT TO REVIEW---\n{report}"
-
-#         feedback = self.client_feedback_agent.run(
-#             input_statement=feedback_input_statement, # The report to be reviewed, prefixed with persona
-#             transcript_file_paths=file_paths # Files to help infer client persona if not fully in input_statement
-#         )
-#         results["client_feedback"] = feedback
-#         if self.verbose: logger.info("Orchestrator: ClientRepresentativeAgent for feedback finished.")
-        
-#         if self.verbose: logger.info("Orchestrator: Pipeline completed.")
-#         return results
-
-from agents.client_representative_agent import ClientRepresentativeAgent
-from agents.client_representative_creator_agent import ClientRepresentativeCreatorAgent
-from agents.interview_report_creator_agent import InterviewReportCreatorAgent
-from agents.job_description_writer_agent import JobDescriptionWriterAgent
+import os
+import json
+import logging
+# Assuming your agents are in the 'agents' directory and importable
 from agents.market_intelligence_agent import MarketIntelligenceAgent
-import logging, os
+from agents.client_representative_creator_agent import ClientRepresentativeCreatorAgent
+from agents.job_description_writer_agent import JobDescriptionWriterAgent
+from agents.interview_report_creator_agent import InterviewReportCreatorAgent
+from agents.client_representative_agent import ClientRepresentativeAgent
 
 logger = logging.getLogger(__name__)
 
-# Helper function (can be in utils.py) - assuming agents use their own internal or imported version
-def is_orchestrator_input_valid(text: str, min_length: int = 10) -> bool:
+# Helper function for basic input validation (can be moved to a utils.py)
+def is_orchestrator_input_valid(text: str, min_length: int = 1, allow_empty_ok: bool = False) -> bool:
+    if allow_empty_ok and (text is None or not text.strip()):
+        return True # Empty is fine if allowed
     if not text or not text.strip() or len(text.strip()) < min_length:
         return False
-    # Add more sophisticated checks if needed for orchestrator-level inputs
+    # Add more sophisticated checks if needed
     return True
+
 
 class MultiAgentOrchestrator:
     def __init__(self, verbose=False):
@@ -139,114 +31,315 @@ class MultiAgentOrchestrator:
         if self.verbose:
             logger.info("MultiAgentOrchestrator initialized with all sub-agents.")
 
-    def _read_content_from_file_paths(self, agent_file_loader_methods: dict, file_paths: list) -> str:
-        loaded_texts = []
-        if not file_paths: return ""
-        for f_path in file_paths:
-            if not os.path.exists(f_path):
-                logger.warning(f"Orchestrator: File {f_path} does not exist, skipping.")
+    # --- Helper for loading files (generic enough for most agents) ---
+    def _load_files_for_agent_input(self, agent_instance, file_paths: list) -> str:
+        """
+        Loads files and concatenates their text content.
+        Agents are expected to have their own file reading methods if they need specific parsing.
+        This helper is more for preparing a combined text block of 'supporting documents'
+        if an agent expects that instead of handling individual file paths.
+        However, most of your agents now handle file_paths directly.
+        This method might be more useful if you want to create a single string from files
+        BEFORE passing to an agent that doesn't take file_paths.
+        For now, let's assume agents called by individual runners will use their own loaders via file_paths.
+        """
+        all_texts = []
+        if not file_paths:
+            return ""
+            
+        for path in file_paths:
+            if not os.path.exists(path):
+                logger.warning(f"Orchestrator (_load_files_for_agent_input): File not found {path}, skipping.")
                 continue
-            filename_lower = f_path.lower()
-            ext = os.path.splitext(filename_lower)[-1]
-            content = None
+            
+            content = ""
+            ext = os.path.splitext(path)[-1].lower()
+            
+            # Try to use agent-specific methods if they exist and are relevant for general text combining
+            # This is a bit tricky because agent loaders are specific.
+            # For simplicity, this helper will do a generic read for now.
+            # The individual agent runner methods should pass `file_paths` to the agent.
             try:
-                if ext in agent_file_loader_methods:
-                    loader_method = agent_file_loader_methods[ext]
-                    content = loader_method(f_path) # Agent methods should strip
-                elif self.verbose: 
-                    logger.warning(f"Orchestrator: No specific loader for {ext} for current agent step, file {f_path} might not be used by this agent's direct loading.")
-                
-                if content and content.strip(): # Ensure content is not just whitespace
-                    base_name = os.path.basename(f_path)
-                    # Agents should add their own headers if needed, orchestrator just combines
-                    loaded_texts.append(content) 
+                with open(path, "r", encoding='utf-8', errors='ignore') as f: # errors='ignore' for problematic files
+                    content = f.read()
+                logger.info(f"Orchestrator (_load_files_for_agent_input): Loaded {path} with generic text read.")
             except Exception as e:
-                logger.error(f"Orchestrator: Error loading file {f_path} for an agent: {e}")
+                logger.warning(f"Orchestrator (_load_files_for_agent_input): Could not load {path} generically: {e}")
+            
+            if content and content.strip():
+                all_texts.append(f"--- Content from file: {os.path.basename(path)} ---\n{content.strip()}")
+        return "\n\n".join(all_texts).strip()
+
+    # --- Individual Agent Runners (Wrappers for direct agent calls) ---
+
+    def run_market_intelligence(self, company_query: str, file_paths: list = None) -> str:
+        """
+        Runs the MarketIntelligenceAgent.
+        Returns the report string (which might be a JSON string containing an error or the report).
+        """
+        if self.verbose: logger.info(f"Orchestrator: Running Market Intelligence for query: '{company_query}'")
         
-        return "\n\n---FILE_SEPARATOR_ORCHESTRATOR---\n\n".join(filter(None, loaded_texts)).strip()
+        # The MarketIntelligenceAgent's run method expects "company_name_query"
+        # and "supporting_documents" (as a single string).
+        # It handles its own file reading if file_paths were passed to its internal loaders,
+        # but here we prepare 'supporting_documents' string if needed.
+        # However, the MarketIntelligenceAgent's run method now calls _pre_analyze_input which takes file text.
+        # For direct call, we'll need to ensure the agent's internal file loading is used if file_paths are given
+        # or a combined text is passed. Let's simplify: pass paths and let agent handle or pass combined text.
+
+        # Option 1: Agent handles paths (if its run method adapted) - Preferred
+        # Option 2: Orchestrator combines text.
+        # Your Market Agent's `run` takes `supporting_documents` (a string).
+        # Its `_pre_analyze_input` also takes `supporting_documents_text`.
+        
+        supporting_docs_str = self._load_files_for_agent_input(self.market_agent, file_paths or [])
+
+        market_input = {
+            "company_name_query": company_query, 
+            "supporting_documents": supporting_docs_str,
+        }
+        report_output = self.market_agent.run(market_input) # This is a string (report or JSON error)
+        
+        # Standardize error checking
+        try:
+            # Check if it's a JSON string with an "error" key
+            data = json.loads(report_output)
+            if isinstance(data, dict) and "error" in data:
+                logger.error(f"Orchestrator: Market Intelligence failed: {data['error']}")
+                return report_output # Return the JSON error string
+        except json.JSONDecodeError:
+            # Not a JSON error, check for "Error:" prefix
+            if report_output.startswith("Error:"):
+                 logger.error(f"Orchestrator: Market Intelligence failed: {report_output}")
+        return report_output
 
 
-    def run_pipeline(self, company_info: str, file_paths: list) -> dict:
+    def run_client_persona_creation(self, client_description_text: str, transcript_file_paths: list = None) -> str:
+        if self.verbose: logger.info(f"Orchestrator: Running Client Persona Creation. Description: '{client_description_text[:100]}...'")
+        persona_prompt = self.client_prompt_agent.run(
+            client_description=client_description_text,
+            transcript_file_paths=transcript_file_paths or [] # Agent handles paths
+        )
+        if persona_prompt.startswith("Error:"): logger.error(f"Orchestrator: Client Persona Creation failed: {persona_prompt}")
+        return persona_prompt
+
+    def run_jd_writing(self, manual_input_for_jd: str, supporting_file_paths: list = None) -> str:
+        if self.verbose: logger.info(f"Orchestrator: Running JD Writing. Manual Input: '{manual_input_for_jd[:100]}...'")
+        jd = self.jd_agent.run(
+            manual_input=manual_input_for_jd,
+            file_paths=supporting_file_paths or [] # Agent handles paths
+        )
+        if jd.startswith("Error:"): logger.error(f"Orchestrator: JD Writing failed: {jd}")
+        return jd
+        
+    def run_interview_report_creation(self, structured_input_text: str, attachment_file_paths: list = None) -> str:
+        if self.verbose: logger.info(f"Orchestrator: Running Interview Report Creation. Input Text: '{structured_input_text[:100]}...'")
+        report = self.interview_agent.run(
+            input_text=structured_input_text,
+            attachment_paths=attachment_file_paths or [] # Agent handles paths
+        )
+        if report.startswith("Error:"): logger.error(f"Orchestrator: Interview Report Creation failed: {report}")
+        return report
+
+    def run_client_feedback_generation(self, statement_for_feedback: str, context_file_paths: list = None) -> str:
+        if self.verbose: logger.info(f"Orchestrator: Running Client Feedback Generation. Statement: '{statement_for_feedback[:100]}...'")
+        feedback = self.client_feedback_agent.run(
+            input_statement=statement_for_feedback,
+            transcript_file_paths=context_file_paths or [] # Agent handles paths
+        )
+        if feedback.startswith("Error:"): logger.error(f"Orchestrator: Client Feedback Generation failed: {feedback}")
+        return feedback
+
+    # --- Chained Pipeline Methods ---
+
+    def create_jd_from_market_report(self, market_report_text: str, jd_role_request: str, additional_jd_files: list = None) -> dict:
         results = {}
-        if self.verbose:
-            logger.info(f"Orchestrator: Starting pipeline with company_info (len {len(company_info)}) and {len(file_paths)} files: {file_paths}")
+        if self.verbose: logger.info(f"Orchestrator: JD from Market Report for role: '{jd_role_request}'")
 
-        if not is_orchestrator_input_valid(company_info, min_length=3): # Company info query can be short
-            logger.error("Orchestrator: Initial 'company_info' is invalid.")
-            results["pipeline_error"] = "Error: Initial 'company_info' is insufficient or non-meaningful."
+        is_report_valid = is_orchestrator_input_valid(market_report_text, min_length=50) and \
+                          not market_report_text.startswith("Error:") and \
+                          not ("error" in market_report_text.lower() and len(market_report_text) < 200 and market_report_text.startswith("{"))
+                          
+        if not is_report_valid:
+            results["job_description_error"] = "Error: Invalid or empty market report provided to create JD."
+            logger.error(results["job_description_error"] + f" (Report snippet: {market_report_text[:100]})")
+            return results
+        if not is_orchestrator_input_valid(jd_role_request, min_length=3):
+            results["job_description_error"] = "Error: Role for JD not specified or too short."
+            logger.error(results["job_description_error"])
             return results
 
-        # Step 1: Market Intelligence Agent
-        if self.verbose: logger.info("Orchestrator: === Step 1: MarketIntelligenceAgent ===")
-        company_details_from_info = self.market_agent.extract_company_details(company_info) # Agent validates internally
-        if company_details_from_info.get("company_name", "Unknown").lower() == "unknown" and not file_paths :
-             logger.warning("Orchestrator: Could not extract company name from 'company_info' and no files provided for Market Agent.")
-             # Allow agent to run and potentially return its own error or generic report.
+        manual_input = f"""Instruction: Create a Job Description for the role: "{jd_role_request}".
+Use the following Market Intelligence Report as the primary source of context for the company, its strategy, and market position.
+Ensure the JD reflects the insights from this report.
 
-        market_agent_loaders = {
-            ".pdf": self.market_agent.load_pdf_from_file,
-            ".txt": self.market_agent.load_text_from_file,
-            ".json": self.market_agent._load_json_as_text_from_file
-        }
-        all_docs_text_market = self._read_content_from_file_paths(market_agent_loaders, file_paths)
-        
-        market_input_payload = {
-            "company_name": company_details_from_info.get("company_name", "Unknown"),
-            "company_location": company_details_from_info.get("company_location", "Unknown"),
-            "geography": company_details_from_info.get("geography", "Unknown"),
-            "supporting_documents": all_docs_text_market,
-        }
-        market_report = self.market_agent.run(market_input_payload)
-        results["market_report"] = market_report
-        if market_report.startswith("Error:"):
-            logger.error(f"Orchestrator: MarketIntelligenceAgent failed: {market_report}")
-            results["market_report_error"] = market_report # Store specific error
-            return results # Stop pipeline
-        if self.verbose: logger.info(f"Orchestrator: MarketIntelligenceAgent finished. Report length: {len(market_report)}")
-
-        # Step 2: Client Representative Prompt Creator Agent
-        if self.verbose: logger.info("Orchestrator: === Step 2: ClientRepresentativeCreatorAgent ===")
-        client_prompt = self.client_prompt_agent.run(client_description=market_report, transcript_file_paths=file_paths)
-        results["client_prompt"] = client_prompt
-        if client_prompt.startswith("Error:"):
-            logger.error(f"Orchestrator: ClientRepresentativeCreatorAgent failed: {client_prompt}")
-            results["client_prompt_error"] = client_prompt
-            return results
-        if self.verbose: logger.info(f"Orchestrator: ClientRepresentativeCreatorAgent finished. Prompt length: {len(client_prompt)}")
-
-        # Step 3: Job Description Writer Agent
-        if self.verbose: logger.info("Orchestrator: === Step 3: JobDescriptionWriterAgent ===")
-        jd = self.jd_agent.run(manual_input=client_prompt, file_paths=file_paths)
+--- MARKET INTELLIGENCE REPORT START ---
+{market_report_text}
+--- MARKET INTELLIGENCE REPORT END ---
+"""
+        jd = self.run_jd_writing(manual_input_for_jd=manual_input, supporting_file_paths=additional_jd_files)
         results["job_description"] = jd
-        if jd.startswith("Error:"):
-            logger.error(f"Orchestrator: JobDescriptionWriterAgent failed: {jd}")
-            results["job_description_error"] = jd
-            return results
-        if self.verbose: logger.info(f"Orchestrator: JobDescriptionWriterAgent finished. JD length: {len(jd)}")
-
-        # Step 4: Interview Report Creator Agent
-        if self.verbose: logger.info("Orchestrator: === Step 4: InterviewReportCreatorAgent ===")
-        interview_input_text = f"---JOB SPEC---\n{jd}\n\n---CLIENT CONTEXT---\n{client_prompt}\n\n---CONSULTANT ASSESSMENT---\n[Consultant should provide notes here if any, or rely on information from attached files for candidate details, interview transcripts etc.]"
-        report = self.interview_agent.run(input_text=interview_input_text, attachment_paths=file_paths)
-        results["interview_report"] = report
-        if report.startswith("Error:"):
-            logger.error(f"Orchestrator: InterviewReportCreatorAgent failed: {report}")
-            results["interview_report_error"] = report
-            return results
-        if self.verbose: logger.info(f"Orchestrator: InterviewReportCreatorAgent finished. Report length: {len(report)}")
-
-        # Step 5: Client Representative Feedback Agent
-        if self.verbose: logger.info("Orchestrator: === Step 5: ClientRepresentativeAgent for feedback ===")
-        feedback_input_statement = f"---CLIENT PERSONA GUIDANCE---\n{client_prompt}\n\n---DOCUMENT TO REVIEW---\n{report}"
-        feedback = self.client_feedback_agent.run(input_statement=feedback_input_statement, transcript_file_paths=file_paths)
-        results["client_feedback"] = feedback
-        if feedback.startswith("Error:"): # This agent might return an error string
-            logger.error(f"Orchestrator: ClientRepresentativeAgent (feedback) failed: {feedback}")
-            results["client_feedback_error"] = feedback
-            # Not necessarily stopping the whole pipeline for a feedback error, but good to note.
-            # For consistency, let's also return here if it fails.
-            return results 
-        if self.verbose: logger.info(f"Orchestrator: ClientRepresentativeAgent for feedback finished. Feedback length: {len(feedback)}")
-        
-        if self.verbose: logger.info("Orchestrator: Pipeline completed successfully.")
+        if jd.startswith("Error:"): results["job_description_error"] = jd
         return results
+
+    def create_client_persona_from_transcripts(self, persona_request: str, transcript_files: list) -> dict:
+        results = {}
+        if self.verbose: logger.info(f"Orchestrator: Client Persona from Transcripts. Request: '{persona_request}'")
+
+        if not transcript_files: # transcript_files must be provided for this method
+            results["client_persona_error"] = "Error: No transcript files provided for persona creation."
+            logger.error(results["client_persona_error"])
+            return results
+        if not is_orchestrator_input_valid(persona_request, min_length=3, allow_empty_ok=False): # Request can be short but not empty
+            results["client_persona_error"] = "Error: Persona creation request is too short or invalid."
+            logger.error(results["client_persona_error"])
+            return results
+            
+        persona_prompt_str = self.run_client_persona_creation(
+            client_description_text=persona_request,
+            transcript_file_paths=transcript_files
+        )
+        results["client_persona_prompt"] = persona_prompt_str
+        if persona_prompt_str.startswith("Error:"): results["client_persona_error"] = persona_prompt_str
+        return results
+
+    def get_feedback_on_document(self, client_persona_guidance: str, document_to_review: str, context_files: list = None) -> dict:
+        results = {}
+        if self.verbose: logger.info(f"Orchestrator: Feedback on Document. Persona: '{client_persona_guidance[:100]}...'. Doc: '{document_to_review[:100]}...'")
+
+        if not is_orchestrator_input_valid(client_persona_guidance, min_length=10): # Persona guidance should have some substance
+            results["client_feedback_error"] = "Error: Client persona guidance is missing or too short."
+            logger.error(results["client_feedback_error"])
+            return results
+        if not is_orchestrator_input_valid(document_to_review, min_length=20): # Document should be substantial
+            results["client_feedback_error"] = "Error: Document to review is missing or too short."
+            logger.error(results["client_feedback_error"])
+            return results
+
+        input_statement_for_feedback = f"""
+---CLIENT PERSONA GUIDANCE---
+{client_persona_guidance}
+---END CLIENT PERSONA GUIDANCE---
+
+---DOCUMENT TO REVIEW---
+{document_to_review}
+---END DOCUMENT TO REVIEW---
+"""
+        feedback_text = self.run_client_feedback_generation(
+            statement_for_feedback=input_statement_for_feedback,
+            context_file_paths=context_files
+        )
+        results["client_feedback"] = feedback_text
+        if feedback_text.startswith("Error:"): results["client_feedback_error"] = feedback_text
+        return results
+
+
+    def full_pipeline_from_company_query(self, company_query: str, initial_files: list = None, specific_jd_role_request:str = None) -> dict:
+        pipeline_results = {"steps_completed": []} # Changed key for clarity
+        if self.verbose: logger.info(f"Orchestrator: Starting FULL pipeline for query: '{company_query}'")
+        
+        if not is_orchestrator_input_valid(company_query, min_length=1): # Company query can be very short
+            pipeline_results["pipeline_error"] = "Error: Initial company query is invalid or empty."
+            logger.error(pipeline_results["pipeline_error"])
+            return pipeline_results
+            
+        initial_files = initial_files or []
+
+        # 1. Market Intelligence
+        market_report_output_str = self.run_market_intelligence(company_query, initial_files)
+        pipeline_results["market_report_raw_output"] = market_report_output_str # Store raw output
+        
+        market_report_text = ""
+        try: # Try to parse if it's a JSON error, otherwise assume it's report text
+            data = json.loads(market_report_output_str)
+            if isinstance(data, dict) and "error" in data:
+                logger.error(f"Full Pipeline - Market Intel Error: {data['error']}")
+                pipeline_results["market_report_error"] = data['error']
+                return pipeline_results 
+            # If it was JSON but not an error structure, treat as text (though unlikely for this agent)
+            market_report_text = market_report_output_str 
+        except json.JSONDecodeError:
+            market_report_text = market_report_output_str # Assume it's the report text or a non-JSON error string
+
+        if market_report_text.startswith("Error:"):
+            logger.error(f"Full Pipeline - Market Intel Error (string): {market_report_text}")
+            pipeline_results["market_report_error"] = market_report_text
+            return pipeline_results
+        
+        pipeline_results["market_report"] = market_report_text
+        pipeline_results["steps_completed"].append("Market Report Generated")
+        if self.verbose: logger.info("Full Pipeline: Market Report Generated.")
+
+        # 2. Client Persona Creation
+        persona_input_desc = f"Persona based on the following company/market context:\n{market_report_text}"
+        client_persona_prompt = self.run_client_persona_creation(persona_input_desc, initial_files)
+        if client_persona_prompt.startswith("Error:"):
+            logger.error(f"Full Pipeline - Client Persona Error: {client_persona_prompt}")
+            pipeline_results["client_persona_error"] = client_persona_prompt
+            return pipeline_results
+        pipeline_results["client_persona_prompt"] = client_persona_prompt
+        pipeline_results["steps_completed"].append("Client Persona Prompt Created")
+        if self.verbose: logger.info("Full Pipeline: Client Persona Prompt Created.")
+
+        # 3. Job Description
+        jd_manual_input = ""
+        if specific_jd_role_request and specific_jd_role_request.strip():
+            jd_manual_input = f"Specific Role Request for JD: {specific_jd_role_request}\n\nClient Persona Context:\n{client_persona_prompt}"
+        else:
+             jd_manual_input = f"""Primary Context for JD (Client Persona derived from Market Report):
+{client_persona_prompt}
+
+Supporting Context (Original Market Report - use this to infer appropriate roles if not obvious from persona):
+--- MARKET REPORT START ---
+{market_report_text}
+--- MARKET REPORT END ---
+
+Instruction: Generate a suitable job description. If the client persona implies a certain type of role or need, focus on that. If it's more general, use the market report to identify a strategically relevant role.
+"""
+        job_description = self.run_jd_writing(jd_manual_input, initial_files)
+        if job_description.startswith("Error:"):
+            logger.error(f"Full Pipeline - JD Error: {job_description}")
+            pipeline_results["job_description_error"] = job_description
+            return pipeline_results
+        pipeline_results["job_description"] = job_description
+        pipeline_results["steps_completed"].append("Job Description Generated")
+        if self.verbose: logger.info("Full Pipeline: Job Description Generated.")
+
+        # 4. Interview Report Template/Guide
+        interview_report_input = f"""
+---CONTEXT: JOB DESCRIPTION---
+{job_description}
+---END CONTEXT: JOB DESCRIPTION---
+---CONTEXT: CLIENT PERSONA (HIRING MANAGER'S PERSPECTIVE)---
+{client_persona_prompt}
+---END CONTEXT: CLIENT PERSONA---
+Instruction: Based on the job description and the hiring client's persona, create a template or a set of key questions and assessment criteria for an interview report for this role. This is NOT a report for a specific candidate yet, but a guide for what should be in such a report.
+"""
+        interview_report_template = self.run_interview_report_creation(interview_report_input, []) # No candidate files
+        if interview_report_template.startswith("Error:"):
+            logger.warning(f"Full Pipeline - Interview Report Template Warning (non-fatal): {interview_report_template}")
+            pipeline_results["interview_report_template_error"] = interview_report_template # Log error but continue
+        pipeline_results["interview_report_template"] = interview_report_template
+        pipeline_results["steps_completed"].append("Interview Report Template/Guide Generated")
+        if self.verbose: logger.info("Full Pipeline: Interview Report Template Generated.")
+
+        # 5. Client Feedback on JD
+        feedback_doc_to_review = job_description
+        feedback_statement = f"""
+---CLIENT PERSONA GUIDANCE---
+{client_persona_prompt}
+---END CLIENT PERSONA GUIDANCE---
+---DOCUMENT TO REVIEW (Job Description)---
+{feedback_doc_to_review}
+---END DOCUMENT TO REVIEW---
+"""
+        client_feedback = self.run_client_feedback_generation(feedback_statement, initial_files)
+        if client_feedback.startswith("Error:"):
+            logger.warning(f"Full Pipeline - Client Feedback Warning (non-fatal): {client_feedback}")
+            pipeline_results["client_feedback_on_jd_error"] = client_feedback # Log error but continue
+        pipeline_results["client_feedback_on_jd"] = client_feedback
+        pipeline_results["steps_completed"].append("Client Feedback on JD Generated")
+        if self.verbose: logger.info("Full Pipeline: Client Feedback on JD Generated.")
+        
+        logger.info("Full Pipeline: Completed.")
+        return pipeline_results
