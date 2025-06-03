@@ -571,8 +571,8 @@ async def multi_agent_pipeline(
 @app.post("/interactive_jd/")
 async def interactive_jd_creation(
     message: str = Form(...),
-    state: str = Form(...),
-    files: List[UploadFile] = File([])
+    state: str = Optional[Form(None)],
+    files: List[UploadFile] = Optional[File(None)]
 ):
     """Single endpoint for interactive JD creation process"""
     endpoint_name = "/interactive_jd/"
