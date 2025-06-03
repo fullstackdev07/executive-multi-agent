@@ -167,18 +167,22 @@
 #             logger.info(f"JD Writer: Truncating from {len(tokens)} to {max_tokens} tokens.")
 #             return enc.decode(tokens[:max_tokens])
 #         return text
-
 from langchain.chat_models import ChatOpenAI
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from dotenv import load_dotenv
 import os, json, fitz
-from typing import List
+from typing import List, Dict
 import tiktoken
 import logging
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+import tempfile
+import shutil
 
 load_dotenv()
 logger = logging.getLogger(__name__)
+
+app = FastAPI()  # Create FastAPI instance
 
 def is_input_valid(text: str, min_length: int = 10, short_text_threshold: int = 20, min_unique_chars_for_short_text: int = 3, allow_short_natural_lang: bool = False) -> bool:
     if not text or not text.strip(): return False
@@ -193,6 +197,14 @@ def is_input_valid(text: str, min_length: int = 10, short_text_threshold: int = 
         elif alnum and len(set(alnum.lower())) < min_unique_chars_for_short_text: return False # Repetitive
     return True
 
+def is_api_input_valid(text: str, field_name: str, min_length: int) -> bool:
+    if not text or not text.strip(): return False
+    if len(text.strip()) < min_length:
+        logger.warning(f"API: {field_name} is too short (min {min_length} chars required).")
+        return False
+    return True
+
+
 class JobDescriptionWriterAgent:
     def __init__(self, verbose: bool = False):
         self.verbose = verbose
@@ -203,64 +215,112 @@ class JobDescriptionWriterAgent:
         
         self.llm = ChatOpenAI(
             openai_api_key=self.openai_api_key, temperature=0.5,
-            model_name="gpt-4", max_tokens=3500 
+            model_name="gpt-4", max_tokens=4000  # Adjusted max_tokens
         )
-        self.chain = LLMChain(llm=self.llm, prompt=self._create_prompt(), verbose=self.verbose)
-        if self.verbose: 
+        # No chain in init, created dynamically during run
+        if self.verbose:
             logger.info("JobDescriptionWriterAgent initialized.")
 
-    def _create_prompt(self) -> PromptTemplate:
-        template = """You are an expert job description writer. Your goal is to create compelling, accurate, and inclusive job descriptions.
+    def _create_prompt(self, section: str, language: str, role_title: str, company_name: str) -> PromptTemplate:
+        """Creates a prompt tailored for each JD section."""
+        if language == "German":
+            template_prefix = "Sie sind ein erfahrener Personalberater für Führungskräfte und erstellen eine Stellenbeschreibung für eine gehobene Position in Deutsch.  Halten Sie die folgenden Richtlinien ein."
+            word_count_message = "Die Länge der folgenden Text sollte zwischen 200 und 300 Wörtern liegen."
+        else: #English
+            template_prefix = "You are an experienced executive search consultant, writing a job description for a senior-level position at {company_name} for the role: {role_title}.  Adhere to the following guidelines."
+            word_count_message = "The following text should be between 200 and 300 words in length."
+            template_prefix = template_prefix.format(company_name=company_name, role_title=role_title)
 
-Given Context:
-{input_text}
 
-Additional Files Content:
-{files_content}
+        if section == "Current Situation":
+            instructions = f"""{template_prefix}
+            Create a compelling 'Current Situation' section for the job description. {word_count_message}
+            - Briefly describe the company's background and strategic context.
+            - Explain the reason this role is being created now.
+            - Focus on the company's market position and strategic goals.
+            """
+        elif section == "The Position":
+            instructions = f"""{template_prefix}
+            Create a detailed 'The Position' section for the job description. {word_count_message}
+            - Clearly outline the responsibilities and expectations of the role.
+            - Use a combination of prose and bullet points for clarity.
+            - Include both explicit and inferred tasks.
+            - Focus on the impact and challenges of the role.
+            """
+        elif section == "Candidate Profile":
+            instructions = f"""{template_prefix}
+            Create a well-defined 'Candidate Profile' section for the job description. {word_count_message}
+            - Describe the experience, qualifications, and traits required for success.
+            - Write in a tone that allows candidates to self-assess their suitability.
+            - Focus on the 'must-have' qualities and the ideal candidate's background.
+            """
+        else:
+            raise ValueError(f"Invalid section: {section}")
 
-Previous Version (if any):
-{previous_version}
+        template = f"""{instructions}
 
-Feedback to Address (if any):
-{feedback}
+        Given Context:
+        {{input_text}}
 
-Instructions:
-1. If this is a new JD (no previous version):
-   - Create a comprehensive job description based on the provided context
-   - Include all standard sections (Overview, Responsibilities, Requirements, etc.)
-   - Incorporate market intelligence if provided
-   - Ensure the tone is professional and engaging
+        Additional Files Content:
+        {{files_content}}
 
-2. If this is a revision:
-   - Address all feedback points while maintaining overall quality
-   - Keep successful elements from the previous version
-   - Ensure changes align with the original requirements
-   - Maintain consistency in tone and structure
-
-Job Description:"""
+        Job Description Section ({section}):"""
 
         return PromptTemplate(
-            input_variables=["input_text", "files_content", "previous_version", "feedback"],
+            input_variables=["input_text", "files_content"],
             template=template
         )
 
-    def run(self, manual_input: str, file_paths: List[str], previous_version: str = "", feedback: str = "") -> str:
-        if not manual_input.strip() and not file_paths:
-            return "Error: No input provided for JD creation"
+    def run(self, manual_input: str, file_paths: List[str]) -> str:  # Arguments as before
+        """Generates the job description in a non-interactive way."""
 
-        files_content = self._load_files(file_paths)
-        
+        # Extract initial info from manual input (if present)
+        role_title = self._extract_value(manual_input, "Role Title:")
+        company_name = self._extract_value(manual_input, "Company Name:")
+        language = self._extract_value(manual_input, "Language:").capitalize()
+        language = language if language in ["English", "German"] else "English" #Default
+
+        all_files_content = ""
+        if file_paths:
+            all_files_content = self._load_files(file_paths)
+
+        # Generate Each Section
+        jd_sections = {}
+        for section_name in ["Current Situation", "The Position", "Candidate Profile"]:
+            prompt = self._create_prompt(section_name, language, role_title, company_name)
+            chain = LLMChain(llm=self.llm, prompt=prompt, verbose=self.verbose)
+            try:
+                jd_sections[section_name] = chain.run({
+                    "input_text": manual_input.strip(),
+                    "files_content": all_files_content.strip()
+                }).strip()
+            except Exception as e:
+                logger.error(f"JD Writer: Error during section {section_name} creation: {e}")
+                return f"Error: Failed to create {section_name} section. Details: {e}"
+
+        # Assemble the Final Job Description
+        final_jd = f"""
+        **Current Situation**
+        {jd_sections['Current Situation']}
+
+        **The Position**
+        {jd_sections['The Position']}
+
+        **Candidate Profile**
+        {jd_sections['Candidate Profile']}
+        """
+
+        return final_jd.strip()
+
+    def _extract_value(self, text: str, label: str) -> str:
+        """Helper to extract values from manual input string."""
         try:
-            result = self.chain.run({
-                "input_text": manual_input.strip(),
-                "files_content": files_content,
-                "previous_version": previous_version,
-                "feedback": feedback
-            })
-            return result.strip()
-        except Exception as e:
-            logger.error(f"JD Writer: Error during JD creation: {e}")
-            return f"Error: Failed to create job description. Details: {e}"
+            start_index = text.index(label) + len(label)
+            end_index = text.index("\n", start_index) if "\n" in text[start_index:] else len(text)
+            return text[start_index:end_index].strip()
+        except ValueError:
+            return ""
 
     def _load_files(self, file_paths: List[str]) -> str:
         # ... (file loading logic remains the same, ensuring content.strip() before append)

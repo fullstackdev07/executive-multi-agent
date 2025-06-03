@@ -408,26 +408,26 @@ User's Specific Areas of Interest (if any):
 
 Generate a comprehensive company profile and market intelligence report structured as follows:
 
-**1. History:** (Approx. 200-300 words)
+1. History: (Approx. 200-300 words)
     *   Describe the founding context (e.g., "likely founded in the early 2010s to address the growing need for..."), significant historical milestones, and key evolutionary phases of "{company_name}". Use your knowledge to elaborate.
 
-**2. Facts & Figures:** (Approx. 200-300 words)
+2. Facts & Figures: (Approx. 200-300 words)
     *   Provide available data or reasoned estimations/qualitative descriptions for:
         *   Revenue: (If exact figures are unknown, describe its likely scale, e.g., "While specific revenue figures for the private company {company_name} are not publicly disclosed, it is positioned as a [small/medium/large] player in the [industry] market. Similar companies in this space generate revenues in the range of...")
         *   Number of Employees: (e.g., "Estimated to have between X and Y employees, typical for a company of its type and market focus.")
         *   Key Office Locations / Global Presence: (If "{company_location}" is specific, state it as the headquarters. If "Not Specified", describe the company's general known global or regional presence, e.g., "While a specific headquarters for this analysis was not determined, {company_name} likely serves customers primarily in {geography} and may have a distributed team or key operational hubs in major cities within this region.")
         *   Ownership Structure: (e.g., "Believed to be a privately held company.", "Operates as a subsidiary of... if known.", "Publicly traded under ticker...") Use your knowledge.
 
-**3. Business Units & Offerings:** (Approx. 300-400 words)
+3. Business Units & Offerings: (Approx. 300-400 words)
     *   Describe the main business lines, divisions, or segments of "{company_name}".
     *   Detail its core products, services, or solutions. Be specific based on your knowledge of such companies.
 
-**4. Market and Competitive Environment (focused on {geography}):** (Approx. 400-500 words)
+4. Market and Competitive Environment (focused on {geography}): (Approx. 400-500 words)
     *   Analyze the primary market(s) "{company_name}" operates in, with a focus on "{geography}".
     *   Discuss key market trends (e.g., technological, regulatory, consumer behavior, economic factors), elaborating with your knowledge.
     *   Identify 2-3 major competitors to "{company_name}" operating within "{geography}". Briefly outline their main offerings or strengths in comparison to "{company_name}". Use your knowledge to identify relevant competitors.
 
-**5. Challenges (within {geography}):** (Approx. 200-300 words)
+5. Challenges (within {geography}): (Approx. 200-300 words)
     *   Identify and discuss 2-3 significant challenges "{company_name}" likely faces in its market(s) within "{geography}". These could be market-specific, competitive, technological, regulatory, or internal. Elaborate based on your understanding of the industry and geography.
 
 Ensure the report is professional, insightful, well-structured, and addresses all sections by actively using your knowledge base to fill in details and provide context.
