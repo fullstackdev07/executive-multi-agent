@@ -167,6 +167,7 @@
 #             logger.info(f"JD Writer: Truncating from {len(tokens)} to {max_tokens} tokens.")
 #             return enc.decode(tokens[:max_tokens])
 #         return text
+
 from langchain.chat_models import ChatOpenAI
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
