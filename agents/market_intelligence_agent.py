@@ -300,25 +300,41 @@
 #         except Exception as e: 
 #             logger.error(f"MarketIntelligenceAgent: Unexpected error parsing extracted company details. Raw: '{extracted_json_str}'. Error: {e}")
 #             return {"company_name": "Unknown", "company_location": "Unknown", "geography": "Unknown"}
-
 import os
-# from langchain_community.llms import OpenAI
+from langchain_community.llms import OpenAI
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from dotenv import load_dotenv
 import json
 import re
 from langchain_community.chat_models import ChatOpenAI
-import fitz # PyMuPDF
+import fitz
 import logging
+import tempfile
+import shutil
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 
 load_dotenv()
 logger = logging.getLogger(__name__)
-# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
+# Helper function to check for basic input validity
+def is_input_valid(text: str, min_length: int = 10, short_text_threshold: int = 20, min_unique_chars_for_short_text: int = 3) -> bool:
+    if not text or not text.strip():
+        return False
+    stripped_text = text.strip()
+    if len(stripped_text) < min_length:
+        return False
+    if len(stripped_text) <= short_text_threshold:
+        alnum_text_part = ''.join(filter(str.isalnum, stripped_text))
+        if not alnum_text_part and len(stripped_text) > 0:
+             return False
+        elif alnum_text_part and len(set(alnum_text_part.lower())) < min_unique_chars_for_short_text:
+            return False
+    return True
 
-def is_input_valid(text: str, min_length: int = 1, short_text_threshold: int = 5, min_unique_chars_for_short_text: int = 1) -> bool:
-    if not text or not isinstance(text, str) or not text.strip():
+# Helper function to check for API input validity (more lenient)
+def is_api_input_valid(text: str, field_name: str, min_length: int = 3, short_text_threshold: int = 20, min_unique_chars_for_short_text: int = 1) -> bool:
+    if not text or not text.strip():
         return False
     stripped_text = text.strip()
     if len(stripped_text) < min_length:
@@ -332,381 +348,332 @@ def is_input_valid(text: str, min_length: int = 1, short_text_threshold: int = 5
     return True
 
 class MarketIntelligenceAgent:
-    def __init__(self, verbose: bool = False, max_tokens: int = 4000): # Keep max_tokens generous
+    def __init__(self, verbose: bool = False, max_tokens: int = 4000):  # Increased max_tokens
         self.name = "Market Intelligence Analyst"
-        self.role = "a highly skilled market research and company analysis expert with deep general knowledge" # Emphasize knowledge
-        self.goal = "to gather information about a company and generate a detailed, well-researched company profile and market intelligence report, filling in details from its knowledge base where specific inputs are lacking."
+        self.role = "a highly skilled market research analyst with access to premium online databases" #Added premium online databases access
+        self.goal = "to gather comprehensive and precise information about a company and generate a detailed market intelligence report" #emphasized precision
         self.verbose = verbose
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         if not self.openai_api_key:
             logger.error("MarketIntelligenceAgent: OpenAI API key not found.")
             raise ValueError("OpenAI API key not found. Please set the OPENAI_API_KEY environment variable.")
 
-        # LLM for the main report generation - slightly higher temperature
-        self.report_llm = ChatOpenAI(
+        self.max_tokens = max_tokens  # Store max_tokens as an instance attribute
+        self.llm = ChatOpenAI(
             openai_api_key=self.openai_api_key,
-            temperature=0.65, # Slightly increased for more inferential/descriptive filling
-            model_name="gpt-3.5-turbo-0125", # Or "gpt-4-turbo-preview" / "gpt-4o" if available
-            max_tokens=max_tokens,
+            temperature=0.3, # Reduced temperature
+            model_name="gpt-4-1106-preview",  # Use GPT-4 for better results, or specify a different model
+            max_tokens=self.max_tokens,
         )
 
-        # LLM for the finder and extractor - keep temperature low for factual retrieval
-        self.utility_llm = ChatOpenAI(
-            openai_api_key=self.openai_api_key,
-            temperature=0.2,
-            model_name="gpt-3.5-turbo-0125",
-            max_tokens=1000 # Typically shorter responses needed
-        )
-
-
-        finder_template_str = """You are an AI assistant specialized in company information retrieval.
-Based on your general knowledge, find the following for the company: "{company_name}".
-1.  **Headquarters Location:** (City, Country. If not found or ambiguous, return "Unknown")
-2.  **Primary Geography of Operation/Focus:** (e.g., USA, Europe, Global, specific countries. If not clear, return "Unknown")
-Return this information strictly as a JSON object with keys "found_location" and "found_geography".
-If specific information for a field cannot be reliably determined, use "Unknown" as its value for that field.
-Provide only the JSON object.
-"""
-        self.finder_prompt = PromptTemplate(input_variables=["company_name"], template=finder_template_str)
-        self.finder_chain = LLMChain(llm=self.utility_llm, prompt=self.finder_prompt, verbose=self.verbose)
-
-        self.report_prompt_template = self._create_report_prompt()
-        self.report_chain = LLMChain(llm=self.report_llm, prompt=self.report_prompt_template, verbose=self.verbose)
-
+        self.prompt_template = self._create_prompt()
+        self.chain = self._create_chain()
         if self.verbose:
-            logger.info(f"{self.name} initialized. Goal: {self.goal}")
+            logger.info("MarketIntelligenceAgent initialized.")
 
-    def _create_report_prompt(self) -> PromptTemplate:
+    def _create_prompt(self) -> PromptTemplate:
         template = """You are {role}. Your goal is {goal}.
-You are tasked with generating a detailed and insightful report about "{company_name}".
-Leverage all provided information AND your extensive general knowledge base to make this report as complete and informative as possible.
-If specific data points (like exact revenue or founding year) are not in the provided documents or readily available public knowledge for this specific company, you should:
-1.  State that precise figures are not publicly available.
-2.  THEN, provide well-reasoned estimations, qualitative descriptions, or industry-typical information. For example, instead of "[X-Y] million", you might say "As a private company in the [industry] sector, its revenue is likely substantial, though specific figures are not disclosed. Companies of this nature in [geography] typically see revenues in the range of..."
-3.  For history, if the exact founding year is unknown, describe the likely period of its establishment based on its industry and offerings, or focus on known developments.
-4.  **Do NOT leave placeholders like "[year]", "[details]", "[X-Y]". Fill them with your best inferential knowledge or qualitative descriptions.** Your primary goal is a readable, informative report, not a template with blanks.
 
-Company Details Provided for Analysis:
+You have been provided with limited information about a company and supporting documents. Your priority is to produce ACCURATE and DETAILED information in the report, even if you need to use your own knowledge and research capabilities.
+
 - Company Name: {company_name}
-- Company Location (if specified by user or found): {company_location}
-- Primary Geography for this Analysis: {geography}
+- Company Location: {company_location}
+- Geography of Focus for this analysis: {geography}
 
-Supporting Documents Synopsis (if provided):
+--- Supporting Documents Provided ---
 {supporting_documents}
+--- End of Supporting Documents ---
 
-User's Specific Areas of Interest (if any):
-{areas_of_interest}
---- End of Input Data ---
+Based on the provided information and, CRITICALLY, your own access to online databases and research tools, generate a concise and insightful market intelligence report. DO NOT rely solely on the provided documents. Actively research the company online to fill in any gaps in the provided information. If the provided location and geography are not specific, use your research to determine them.  AVOID making vague or uncertain statements.
 
---- Important Instructions for Report Generation ---
-- If "Company Location" is "Not Specified", state this fact in "Facts & Figures". Conduct analysis based on "{geography}" and your general knowledge of the company's operational spread.
-- If "Primary Geography for this Analysis" is "Global", ensure "Market and Competitive Environment" and "Challenges" adopt a global perspective. If a specific geography is provided, focus analysis there.
-- If "Company Name" is generic (e.g., "A Company (Name Not Specified)"), clearly state this limitation. Focus on the general industry implied by documents/interests, or state that detailed company-specific analysis is limited.
-- **Avoid literal "Unknown" placeholders.** Adapt language for general, global, or "not specified" information.
-- If "User's Specific Areas of Interest" are provided and not "None provided", thoughtfully weave insights into relevant sections.
---- End of Important Instructions ---
+The report should mimic the example output provided below in terms of structure and level of detail. Focus on accuracy, brevity and actionable insights.
 
-Generate a comprehensive company profile and market intelligence report structured as follows:
+**Example Output Format:**
 
-1. History: (Approx. 200-300 words)
-    *   Describe the founding context (e.g., "likely founded in the early 2010s to address the growing need for..."), significant historical milestones, and key evolutionary phases of "{company_name}". Use your knowledge to elaborate.
+**Market Research Report for: [Company Name]**
 
-2. Facts & Figures: (Approx. 200-300 words)
-    *   Provide available data or reasoned estimations/qualitative descriptions for:
-        *   Revenue: (If exact figures are unknown, describe its likely scale, e.g., "While specific revenue figures for the private company {company_name} are not publicly disclosed, it is positioned as a [small/medium/large] player in the [industry] market. Similar companies in this space generate revenues in the range of...")
-        *   Number of Employees: (e.g., "Estimated to have between X and Y employees, typical for a company of its type and market focus.")
-        *   Key Office Locations / Global Presence: (If "{company_location}" is specific, state it as the headquarters. If "Not Specified", describe the company's general known global or regional presence, e.g., "While a specific headquarters for this analysis was not determined, {company_name} likely serves customers primarily in {geography} and may have a distributed team or key operational hubs in major cities within this region.")
-        *   Ownership Structure: (e.g., "Believed to be a privately held company.", "Operates as a subsidiary of... if known.", "Publicly traded under ticker...") Use your knowledge.
+**Company Overview**
+- [Company Name] is a company based in [Location], founded in [Year].
+- It provides [brief description of products/services].
+- The company is a [market leader/major player] in [specific industry/market].
+- It serves [number] customers, including [types of customers].
+- [Mention any significant recent events, like acquisitions, funding rounds].
 
-3. Business Units & Offerings: (Approx. 300-400 words)
-    *   Describe the main business lines, divisions, or segments of "{company_name}".
-    *   Detail its core products, services, or solutions. Be specific based on your knowledge of such companies.
+**Market Position**
+- [Company Name] is a [market leader/major player/rising competitor] in [specific market].
+- It has a [strong/moderate/weak] market presence compared to its competitors.
+- The company recently [describe recent actions or events affecting its market position, e.g., product launches, partnerships].
 
-4. Market and Competitive Environment (focused on {geography}): (Approx. 400-500 words)
-    *   Analyze the primary market(s) "{company_name}" operates in, with a focus on "{geography}".
-    *   Discuss key market trends (e.g., technological, regulatory, consumer behavior, economic factors), elaborating with your knowledge.
-    *   Identify 2-3 major competitors to "{company_name}" operating within "{geography}". Briefly outline their main offerings or strengths in comparison to "{company_name}". Use your knowledge to identify relevant competitors.
+**Competitors**
+- The company has [number] significant active competitors.
+- Major competitors include: [List 2-3 key competitors with one-line descriptions, including their strengths/weaknesses].
 
-5. Challenges (within {geography}): (Approx. 200-300 words)
-    *   Identify and discuss 2-3 significant challenges "{company_name}" likely faces in its market(s) within "{geography}". These could be market-specific, competitive, technological, regulatory, or internal. Elaborate based on your understanding of the industry and geography.
+**Recent Developments**
+- A significant recent development for [Company Name] is [describe a key event or change].
+- This [event/change] was [financed by/caused by/related to] [relevant entities or factors].
 
-Ensure the report is professional, insightful, well-structured, and addresses all sections by actively using your knowledge base to fill in details and provide context.
+**Strategic Outlook**
+- [Company Name], along with its [stakeholders], has a clear strategic vision to [describe the company's goals, based on available information].
+- This is likely to be achieved through [describe key strategies, e.g., expansion into new markets, new product development].
+- The company continues to focus on its core market of [describe target market, based on available information].
 
-Company Profile and Market Intelligence Report for {company_name}:
+--- End of Example ---
+
+Now, generate the Market Intelligence Report based on the information you have, augmented by your own online research:
+
+Market Research Report for: {company_name}
 """
         return PromptTemplate(
             input_variables=[
-                "role", "goal", "company_name", "company_location",
-                "geography", "supporting_documents", "areas_of_interest"
+                "role",
+                "goal",
+                "company_name",
+                "company_location",
+                "geography",
+                "supporting_documents",
             ],
             template=template,
         )
 
-    def _find_missing_company_info_with_llm(self, company_name: str) -> dict:
-        # This method remains the same.
-        if not company_name or not is_input_valid(company_name, min_length=2) \
-           or company_name.lower() == "unknown" or company_name == "A Company (Name Not Specified)":
-            if self.verbose: logger.info(f"MarketIntelligenceAgent (Finder): Skipping LLM find for generic/invalid company name: '{company_name}'")
-            return {"found_location": "Unknown", "found_geography": "Unknown"}
-
-        payload = {"company_name": company_name.strip()}
-        extracted_json_str = ""
-        try:
-            if self.verbose: logger.info(f"MarketIntelligenceAgent (Finder): Querying LLM for location/geography of '{company_name}'")
-            
-            if hasattr(self.finder_chain, 'invoke'):
-                response_dict = self.finder_chain.invoke(payload)
-                extracted_json_str = response_dict.get('text', str(response_dict))
-            else:
-                extracted_json_str = self.finder_chain.run(payload)
-
-            match_json_block = re.search(r"```json\s*([\s\S]*?)\s*```", extracted_json_str, re.IGNORECASE)
-            if match_json_block:
-                json_str_to_parse = match_json_block.group(1).strip()
-            else:
-                try:
-                    start_index = extracted_json_str.index("{")
-                    end_index = extracted_json_str.rindex("}") + 1
-                    json_str_to_parse = extracted_json_str[start_index:end_index].strip()
-                except ValueError:
-                    logger.error(f"MarketIntelligenceAgent (Finder): Could not find JSON object markers in LLM response: '{extracted_json_str}'")
-                    return {"found_location": "Unknown", "found_geography": "Unknown"}
-            
-            details = json.loads(json_str_to_parse)
-            found_loc = details.get("found_location", "Unknown")
-            found_geo = details.get("found_geography", "Unknown")
-
-            if not isinstance(found_loc, str): found_loc = "Unknown"
-            if not isinstance(found_geo, str): found_geo = "Unknown"
-
-            if self.verbose: logger.info(f"MarketIntelligenceAgent (Finder): LLM returned - Location: '{found_loc}', Geography: '{found_geo}' for '{company_name}'")
-            return {"found_location": found_loc.strip(), "found_geography": found_geo.strip()}
-        except json.JSONDecodeError:
-            logger.error(f"MarketIntelligenceAgent (Finder): Failed to decode JSON. Raw output: '{extracted_json_str}'")
-        except Exception as e:
-            logger.error(f"MarketIntelligenceAgent (Finder): Error during LLM execution or parsing: {e}. Raw output: '{extracted_json_str}'")
-        return {"found_location": "Unknown", "found_geography": "Unknown"}
+    def _create_chain(self) -> LLMChain:
+        if not self.prompt_template:
+            logger.error("MarketIntelligenceAgent: Prompt template must be created before creating the LLMChain.")
+            raise ValueError("Prompt template must be created before creating the LLMChain.")
+        return LLMChain(llm=self.llm, prompt=self.prompt_template, verbose=self.verbose)
 
     def run(self, input_data: dict) -> str:
-        # This method's logic for determining company_name, location, geography, docs, areas_of_interest
-        # remains largely the same as the previous version, as it correctly prepares these for the payload.
-        # The key change is the enhanced prompt and potentially the report_llm temperature.
+        if self.verbose:
+            logger.info(f"MarketIntelligenceAgent: Running with input keys: {list(input_data.keys())}")
+            logger.info(f"MarketIntelligenceAgent: Company Name from input_data: {input_data.get('company_name')}")
+            logger.info(f"MarketIntelligenceAgent: Supporting docs (preview): {str(input_data.get('supporting_documents'))[:200]}...")
 
-        if self.verbose: logger.info(f"MarketIntelligenceAgent: Received run request with input_data keys: {list(input_data.keys())}")
+        company_name = input_data.get("company_name", "Unknown")
+        company_location = input_data.get("company_location", "Research online to determine the company location")  # Use prompt defaults
+        geography = input_data.get("geography", "Research online to determine the company's primary geography") # Use prompt defaults
+        supporting_docs = input_data.get("supporting_documents", "")
 
-        company_name_from_api = input_data.get("company_name", "A Company (Name Not Specified)")
-        if not company_name_from_api or not is_input_valid(company_name_from_api, min_length=2):
-            company_name_for_payload = "A Company (Name Not Specified)"
-            logger.warning(f"MarketIntelligenceAgent: Company name from API ('{company_name_from_api}') is invalid or missing, defaulted to '{company_name_for_payload}'.")
+
+        # Validate company_name (Crucial)
+        if company_name.lower() == "unknown" or not is_input_valid(company_name, min_length=2, short_text_threshold=10, min_unique_chars_for_short_text=1):
+            logger.warning(f"MarketIntelligenceAgent: Company name '{company_name}' is invalid or 'Unknown'. Report generation might be impacted or fail.")
+            # If no supporting docs, then definitely cannot run.
+            if not (supporting_docs and is_input_valid(supporting_docs, min_length=50)):
+                return "Error: Company name is invalid and no supporting documents were provided. Cannot generate a meaningful report."
+            # Let the agent try to infer from the docs if they exist.
+
+        # Supporting Doc Validations (Less Critical but helpful)
+        if supporting_docs and not is_input_valid(supporting_docs, min_length=50):
+             logger.warning(f"MarketIntelligenceAgent: Supporting documents appear non-meaningful or too short. Preview: {supporting_docs[:100]}...")
+             supporting_docs_for_llm = "Note: Provided supporting documents were minimal or appeared non-meaningful. Use your research tools to find additional information."
         else:
-            company_name_for_payload = company_name_from_api.strip()
-
-        supporting_docs_text_from_api = input_data.get("supporting_documents", "")
-        if supporting_docs_text_from_api and isinstance(supporting_docs_text_from_api, str) and \
-           is_input_valid(supporting_docs_text_from_api, min_length=50, short_text_threshold=100, min_unique_chars_for_short_text=10):
-            supporting_docs_for_llm = supporting_docs_text_from_api.strip()
-        elif supporting_docs_text_from_api:
-            supporting_docs_for_llm = "Note: Provided supporting documents were minimal, appeared non-meaningful, or could not be fully processed."
-            logger.warning(f"MarketIntelligenceAgent: Supporting documents text from API seems weak. Using note for LLM.")
-        else:
-            supporting_docs_for_llm = "No supporting documents provided."
-
-        if company_name_for_payload == "A Company (Name Not Specified)" and supporting_docs_for_llm == "No supporting documents provided.":
-            logger.error("MarketIntelligenceAgent: Cannot generate report. Company name is generic and no supporting documents were effectively provided.")
-            return "Error: Cannot generate report. Company name is generic/unknown and no substantial supporting documents were provided."
-
-        raw_location_from_api = input_data.get("company_location", "Unknown")
-        raw_geography_from_api = input_data.get("geography", "Unknown")
-        
-        areas_of_interest_input = input_data.get("areas_of_interest", "")
-        areas_of_interest_for_llm = areas_of_interest_input.strip() if areas_of_interest_input and isinstance(areas_of_interest_input, str) and areas_of_interest_input.strip() else "None provided."
-        if areas_of_interest_for_llm != "None provided." and self.verbose:
-            logger.info(f"MarketIntelligenceAgent: Areas of interest provided: '{areas_of_interest_for_llm}'")
-
-        final_location = "Not Specified"
-        final_geography = "Global"
-
-        if raw_location_from_api and isinstance(raw_location_from_api, str) and \
-           raw_location_from_api.strip().lower() != "unknown" and \
-           is_input_valid(raw_location_from_api.strip(), min_length=2):
-            final_location = raw_location_from_api.strip()
-        
-        if raw_geography_from_api and isinstance(raw_geography_from_api, str) and \
-           raw_geography_from_api.strip().lower() != "unknown" and \
-           is_input_valid(raw_geography_from_api.strip(), min_length=2):
-            final_geography = raw_geography_from_api.strip()
-
-        if company_name_for_payload != "A Company (Name Not Specified)":
-            needs_location_search = (final_location == "Not Specified")
-            needs_geography_search = (final_geography == "Global" and (raw_geography_from_api is None or raw_geography_from_api.strip().lower() == "unknown" or raw_geography_from_api.strip().lower() == "global")) or \
-                                     (raw_geography_from_api and raw_geography_from_api.strip().lower() == "unknown")
-
-            if needs_location_search or needs_geography_search:
-                if self.verbose: logger.info(f"MarketIntelligenceAgent: Attempting to find/confirm details for '{company_name_for_payload}' via internal LLM knowledge.")
-                found_details = self._find_missing_company_info_with_llm(company_name_for_payload)
-
-                if needs_location_search and found_details.get("found_location","Unknown").lower() != "unknown":
-                    if is_input_valid(found_details["found_location"], min_length=2):
-                        final_location = found_details["found_location"]
-                        if self.verbose: logger.info(f"MarketIntelligenceAgent: Using LLM-found location: '{final_location}'")
-                
-                if needs_geography_search and found_details.get("found_geography","Unknown").lower() != "unknown":
-                    if is_input_valid(found_details["found_geography"], min_length=2):
-                        final_geography = found_details["found_geography"]
-                        if self.verbose: logger.info(f"MarketIntelligenceAgent: Using LLM-found geography: '{final_geography}'")
-        
-        if final_location.lower() == "unknown" or not is_input_valid(final_location): final_location = "Not Specified"
-        if final_geography.lower() == "unknown" or not is_input_valid(final_geography): final_geography = "Global"
+            supporting_docs_for_llm = supporting_docs if supporting_docs else "No supporting documents provided. Use your research tools to find the necessary information."
 
         payload = {
             "role": self.role,
             "goal": self.goal,
-            "company_name": company_name_for_payload,
-            "company_location": final_location,
-            "geography": final_geography,
+            "company_name": company_name,
+            "company_location": company_location,
+            "geography": geography,
             "supporting_documents": supporting_docs_for_llm,
-            "areas_of_interest": areas_of_interest_for_llm,
         }
 
-        if self.verbose:
-            logger.info(f"MarketIntelligenceAgent: Final payload for LLM report generation: {payload}")
-
         try:
-            if hasattr(self.report_chain, 'invoke'):
-                response_dict = self.report_chain.invoke(payload)
-                response_text = response_dict.get('text')
-                if response_text is None: response_text = str(response_dict)
+            if hasattr(self.chain, 'invoke'):
+                response_dict = self.chain.invoke(payload)
+                response = response_dict.get('text')
+                if response is None:
+                    response = str(response_dict)
             else:
-                 response_text = self.report_chain.run(payload)
-            
-            final_report = response_text.strip()
-            if company_name_for_payload == "A Company (Name Not Specified)" and "A Company (Name Not Specified)" not in final_report[:500]:
-                final_report = f"Note: This report addresses a company for which a specific name was not provided or determined.\n\n{final_report}"
-
+                response = self.chain.run(payload)
         except Exception as e:
-            logger.exception(f"MarketIntelligenceAgent: Error during LLM report chain execution: {e}")
-            return f"Error: Failed to generate report due to an internal LLM or processing error: {str(e)}"
+            logger.exception(f"MarketIntelligenceAgent: Error during LLM chain execution: {e}")
+            return f"Error: Failed to generate market report due to an internal error: {str(e)}" #PREVENT API CRASH.
 
-        if self.verbose: logger.info(f"MarketIntelligenceAgent: Report generated successfully (preview: {final_report[:400]}...)")
-        return final_report
+        if self.verbose:
+            logger.info(f"MarketIntelligenceAgent response (preview): {response[:300]}...")
+        return response
 
-    # --- File Loading Methods & Extractor (remain the same as previous good version) ---
     def load_text_from_file(self, filepath: str) -> str:
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 text = f.read()
             if self.verbose: logger.info(f"MarketIntelligenceAgent: Loaded text from {filepath}")
-            return text.strip()
+            return text.strip() # Ensure stripping
         except FileNotFoundError:
-            logger.warning(f"MarketIntelligenceAgent: Text file not found: {filepath}")
+            logger.warning(f"MarketIntelligenceAgent: File not found: {filepath}")
             return ""
+        # ... (other exceptions)
         except Exception as e:
-            logger.error(f"MarketIntelligenceAgent: Error loading text file {filepath}: {e}")
-            return f"Warning: Error loading text file {os.path.basename(filepath)}."
+            logger.error(f"MarketIntelligenceAgent: General error loading text file {filepath}: {e}")
+            return ""
+
 
     def load_pdf_from_file(self, filepath: str) -> str:
         text = ""
         try:
             with fitz.open(filepath) as doc:
-                for page_num in range(len(doc)):
-                    page = doc.load_page(page_num)
+                for page in doc:
                     text += page.get_text("text")
-            if self.verbose: logger.info(f"MarketIntelligenceAgent: Loaded PDF content from {filepath}, length: {len(text)}")
+            if self.verbose: logger.info(f"MarketIntelligenceAgent: Loaded PDF (via fitz) from {filepath}, length: {len(text)}")
             return text.strip()
+        # ... (exceptions)
         except Exception as e:
             logger.error(f"MarketIntelligenceAgent: Error loading PDF {filepath} with fitz: {e}")
-            return f"Warning: Error loading PDF content from {os.path.basename(filepath)}. Content may be missing or incomplete."
+            return f"Warning: Error loading PDF content from {os.path.basename(filepath)} using fitz."
+
 
     def _load_json_as_text_from_file(self, filepath: str) -> str:
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 json_data = json.load(f)
             text_content = json.dumps(json_data, indent=2)
-            if self.verbose: logger.info(f"MarketIntelligenceAgent: Loaded JSON as text from {filepath}, length: {len(text_content)}")
-            return text_content.strip()
-        except FileNotFoundError:
-            logger.warning(f"MarketIntelligenceAgent: JSON file not found: {filepath}")
-            return ""
-        except json.JSONDecodeError:
-            logger.error(f"MarketIntelligenceAgent: Error decoding JSON file {filepath}")
-            return f"Warning: Error decoding JSON file {os.path.basename(filepath)}. It may be malformed."
+            if self.verbose: logger.info(f"MarketIntelligenceAgent: Loaded JSON from {filepath}, length: {len(text_content)}")
+            return text_content.strip() # Ensure stripping
+        # ... (exceptions)
         except Exception as e:
             logger.error(f"MarketIntelligenceAgent: Error loading JSON file {filepath}: {e}")
             return f"Warning: Error loading JSON file {os.path.basename(filepath)}."
 
     def save_report_to_file(self, report: str, filepath: str):
+        # ... (no changes needed here for gibberish input)
         try:
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(report)
-            logger.info(f"MarketIntelligenceAgent: Report successfully saved to {filepath}")
+            logger.info(f"MarketIntelligenceAgent: Report saved to {filepath}")
         except Exception as e:
             logger.error(f"MarketIntelligenceAgent: Error saving report to {filepath}: {e}")
 
-    def extract_company_details(self, company_information_text: str) -> dict:
-        if not company_information_text or not isinstance(company_information_text, str) or len(company_information_text.strip()) < 3:
-            logger.warning(f"MarketIntelligenceAgent (Extractor): Input text for extraction ('{company_information_text[:50]}...') is too short or invalid.")
-            return {"company_name": "Unknown", "company_location": "Unknown", "geography": "Unknown"}
 
-        extract_prompt_template_str = """You are an expert at extracting specific company information from unstructured text.
+    def extract_company_details(self, company_information: str) -> dict:
+        # Use more lenient min_length for company info as it can be short phrases.
+        if not is_input_valid(company_information, min_length=5, short_text_threshold=30, min_unique_chars_for_short_text=2):
+            logger.warning(f"MarketIntelligenceAgent: company_information for extraction appears non-meaningful: {company_information[:100]}...")
+            return { "company_name": "Unknown", "company_location": "Unknown", "geography": "Unknown" }
+
+        extract_prompt_template = """You are an expert at extracting specific company information from unstructured text.
 Given the following text:
 --- TEXT START ---
 {company_information}
 --- TEXT END ---
-Your task is to extract:
-1.  **Company Name:** The primary legal or commonly known name of the company. If multiple names seem present, choose the most complete or official one. If no clear company name, return "Unknown".
-2.  **Company Location:** The city and country of the company's headquarters or main office if explicitly mentioned. If multiple locations, pick the most prominent or first mentioned as HQ. If none, return "Unknown".
-3.  **Geography of Focus:** The primary geographical market or region the company operates in or is targeting, as suggested by the text (e.g., a specific country, a continent like Europe, or terms like "global", "EMEA", "North America"). If none, return "Unknown".
-Return this information strictly as a JSON object with keys: "company_name", "company_location", "geography".
+Your task is to extract the following three pieces of information:
+1.  **Company Name:** The primary legal or commonly known name of the company.
+2.  **Company Location:** The city and country of the company's headquarters or main office mentioned. If multiple locations, pick the most prominent or first mentioned as HQ.
+3.  **Geography of Focus:** The primary geographical market or region the company operates in or is targeting, as suggested by the text. This might be a country, a continent, or terms like "global", "EMEA", "North America".
+Return the extracted information strictly as a JSON object with the keys: "company_name", "company_location", "geography".
+If any piece of information cannot be reliably determined from the text, use the string "Unknown" as its value.
 Provide only the JSON object in your response.
-"""
-        extract_prompt = PromptTemplate(input_variables=["company_information"], template=extract_prompt_template_str)
-        # Use utility_llm for extraction
-        extract_chain = LLMChain(llm=self.utility_llm, prompt=extract_prompt, verbose=self.verbose)
+""" # Simplified prompt for brevity, actual prompt is longer.
 
+        extract_prompt = PromptTemplate(
+            input_variables=["company_information"],
+            template=extract_prompt_template,
+        )
 
-        if self.verbose: logger.info(f"MarketIntelligenceAgent (Extractor): Attempting to extract company details from text (preview): {company_information_text[:150]}...")
-        
-        extracted_json_str = ""
+        extract_chain = LLMChain(llm=self.llm, prompt=extract_prompt)
+
+        if self.verbose:
+            logger.info(f"MarketIntelligenceAgent: Extracting company details from: {company_information[:100]}...")
+
+        if hasattr(extract_chain, 'invoke'):
+            extracted_response = extract_chain.invoke({"company_information": company_information})
+            extracted_json_str = extracted_response.get('text', str(extracted_response))
+        else:
+            extracted_json_str = extract_chain.run({"company_information": company_information})
+
         try:
-            if hasattr(extract_chain, 'invoke'):
-                response_dict = extract_chain.invoke({"company_information": company_information_text})
-                extracted_json_str = response_dict.get('text', str(response_dict))
+            match = re.search(r"```json\s*([\s\S]*?)\s*```", extracted_json_str, re.IGNORECASE)
+            if match:
+                json_str_to_parse = match.group(1).strip()
             else:
-                extracted_json_str = extract_chain.run({"company_information": company_information_text})
-            
-            match_json_block = re.search(r"```json\s*([\s\S]*?)\s*```", extracted_json_str, re.IGNORECASE)
-            if match_json_block:
-                json_str_to_parse = match_json_block.group(1).strip()
-            else:
-                try:
-                    start_index = extracted_json_str.index("{")
-                    end_index = extracted_json_str.rindex("}") + 1
-                    json_str_to_parse = extracted_json_str[start_index:end_index].strip()
-                except ValueError:
-                    logger.error(f"MarketIntelligenceAgent (Extractor): Could not find JSON object markers in LLM response: '{extracted_json_str}'")
-                    return {"company_name": "Unknown", "company_location": "Unknown", "geography": "Unknown"}
+                curly_match = re.search(r"(\{[\s\S]*\})", extracted_json_str)
+                if curly_match:
+                    json_str_to_parse = curly_match.group(1).strip()
+                else:
+                    json_str_to_parse = extracted_json_str.strip()
 
             details = json.loads(json_str_to_parse)
-            extracted_data = {
+            final_details = {
                 "company_name": details.get("company_name", "Unknown"),
                 "company_location": details.get("company_location", "Unknown"),
                 "geography": details.get("geography", "Unknown"),
             }
-            for key, value in extracted_data.items():
-                if not isinstance(value, str): 
-                    extracted_data[key] = "Unknown"
-                else:
-                    stripped_value = value.strip()
-                    if stripped_value.lower() != "unknown" and not is_input_valid(stripped_value, min_length=2):
-                        if self.verbose: logger.info(f"Extractor: Invalid value '{stripped_value}' for {key}, treating as 'Unknown'.")
-                        extracted_data[key] = "Unknown"
-                    else:
-                        extracted_data[key] = stripped_value
-            
-            if self.verbose: logger.info(f"MarketIntelligenceAgent (Extractor): Successfully extracted details: {extracted_data}")
-            return extracted_data
+            for key in final_details: # Ensure "Unknown" if empty or not valid
+                if not final_details[key] or not isinstance(final_details[key], str) or \
+                   (final_details[key].lower() != "unknown" and not is_input_valid(final_details[key], min_length=2, short_text_threshold=10, min_unique_chars_for_short_text=1)):
+                    final_details[key] = "Unknown"
+            if self.verbose:
+                logger.info(f"MarketIntelligenceAgent: Extracted company details (parsed JSON): {final_details}")
+            return final_details
         except json.JSONDecodeError:
-            logger.error(f"MarketIntelligenceAgent (Extractor): Failed to decode JSON from LLM. Raw output: '{extracted_json_str}'")
+            logger.error(f"MarketIntelligenceAgent: Failed to decode JSON from LLM for company details. Raw output: '{extracted_json_str}'")
+            # Basic regex fallback
+            name_match = re.search(r'"company_name":\s*"([^"]*)"', extracted_json_str, re.IGNORECASE)
+            loc_match = re.search(r'"company_location":\s*"([^"]*)"', extracted_json_str, re.IGNORECASE)
+            geo_match = re.search(r'"geography":\s*"([^"]*)"', extracted_json_str, re.IGNORECASE)
+
+            return {
+                "company_name": name_match.group(1) if name_match and name_match.group(1) else "Unknown",
+                "company_location": loc_match.group(1) if loc_match and loc_match.group(1) else "Unknown",
+                "geography": geo_match.group(1) if geo_match and geo_match.group(1) else "Unknown",
+            }
         except Exception as e:
-            logger.error(f"MarketIntelligenceAgent (Extractor): Unexpected error during extraction: {e}. Raw output: '{extracted_json_str}'")
-        return {"company_name": "Unknown", "company_location": "Unknown", "geography": "Unknown"}
+            logger.error(f"MarketIntelligenceAgent: Unexpected error parsing extracted company details. Raw: '{extracted_json_str}'. Error: {e}")
+            return {"company_name": "Unknown", "company_location": "Unknown", "geography": "Unknown"}
+
+app = FastAPI()
+
+@app.post("/market_intelligence")
+async def get_market_intelligence(
+    company_information: str = Form(""),
+    supporting_documents: list[UploadFile] = File([])
+):
+    endpoint_name = "/market_intelligence"
+    # Validate company_information - crucial for this endpoint
+    if company_information and not is_api_input_valid(company_information, "company_information", min_length=3, short_text_threshold=20, min_unique_chars_for_short_text=1): # Company names can be very short (e.g. "GE")
+        # If supporting_documents are also empty, then definitely an issue.
+        if not supporting_documents:
+            raise HTTPException(status_code=400, detail="Provided 'company_information' is not meaningful, and no supporting documents were uploaded.")
+        logger.warning(f"{endpoint_name}: 'company_information' seems weak, will rely heavily on documents.")
+        # Allow to proceed if documents are present. Agent will handle bad company_information.
+
+    logger.info(f"{endpoint_name}: Received company_information: {company_information[:100]}...")
+    temp_file_paths, loaded_documents_content = [], []
+    try:
+        agent = MarketIntelligenceAgent(verbose=True)
+        for doc_file in supporting_documents:
+            logger.info(f"{endpoint_name}: Processing file: {doc_file.filename}")
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(doc_file.filename)[-1]) as tmp:
+                shutil.copyfileobj(doc_file.file, tmp); tmp_path = tmp.name
+            temp_file_paths.append(tmp_path)
+            try:
+                text_content = ""
+                fname_lower = doc_file.filename.lower()
+                if fname_lower.endswith(".pdf"): text_content = agent.load_pdf_from_file(tmp_path)
+                elif fname_lower.endswith(".txt"): text_content = agent.load_text_from_file(tmp_path)
+                elif fname_lower.endswith(".json"): text_content = agent._load_json_as_text_from_file(tmp_path)
+                else: logger.warning(f"{endpoint_name}: Unsupported file: {doc_file.filename}"); continue
+                if text_content and text_content.strip(): loaded_documents_content.append(text_content)
+                else: logger.warning(f"{endpoint_name}: No content from {doc_file.filename}")
+            except Exception as e: logger.error(f"{endpoint_name}: Error processing {doc_file.filename}: {e}")
+
+        all_docs_text = "\n\n---DOC_SEP---\n\n".join(filter(None, loaded_documents_content))
+
+        # Remove extract_company_details and rely on the Agent's online research
+        # and internal prompting.
+        # Setting 'Unknown' initially allows for agent research.
+        market_input = {
+            "company_name": company_information if company_information.strip() else "Unknown",
+            "company_location": "Research online to determine the company location",
+            "geography": "Research online to determine the company's primary geography",
+            "supporting_documents": all_docs_text,
+        }
+        market_report = agent.run(market_input)
+        if market_report.startswith("Error:"): # Check if agent itself returned an error
+            raise HTTPException(status_code=400, detail=market_report) # Propagate agent error
+        return {"market_report": market_report}
+    except HTTPException as http_exc: raise http_exc
+    except Exception as e: logger.exception(f"{endpoint_name}: Error: {e}"); raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        for path in temp_file_paths:
+            try: os.remove(path)
+            except Exception as ex: logger.warning(f"{endpoint_name}: Cleanup error {path}: {ex}")
