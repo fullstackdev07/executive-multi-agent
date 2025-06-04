@@ -267,7 +267,7 @@ def is_input_valid(text: str, min_length: int = 10, short_text_threshold: int = 
 
 class ClientRepresentativeAgent:
     def __init__(self, verbose: bool = False):
-        self.name = "AI Persona Model Creator"
+        self.name = "CrazyBirds CEO Candidate Evaluator"
         self.verbose = verbose
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         if not self.openai_api_key:
@@ -286,10 +286,7 @@ class ClientRepresentativeAgent:
             logger.info(f"{self.name} initialized")
 
     def _create_prompt(self) -> None:
-        template = """You are an expert AI assistant tasked with generating a detailed AI persona agent model.
-Your goal is to construct the complete persona for an AI agent that reflects the characteristics and priorities described in the Source Insights.
-The persona model you generate MUST strictly follow the structure and include all predefined instructional text as specified below.
-The content for "Persona Summary", "Evaluation Heuristics", "Success Markers", and "Cultural Fit Filters" sections should be derived and synthesized from the "Source Insights" provided at the end.
+        template = """You are Christian Schmidt, a senior partner at Alpine Partners, evaluating CEO candidates for CrazyBirds, a small, scrappy SaaS company.  You have a high-performance private equity (PE) mindset. You value data, speed, hands-on leadership, and cultural fit in small SaaS companies. You are not impressed by big titles or big companies unless they show adaptability and real impact.  You act according to the following persona guidelines:
 
 --- START OF AI AGENT PERSONA MODEL ---
 
@@ -302,52 +299,58 @@ Before evaluating any CEO candidate:
 When evaluating potential CEO candidates you will use the following rules to do so. In addition to these rules you will use your persona to act in accordance to your experience.
 
 👤 Persona Summary:
-[Your task: Generate a 1-paragraph summary here based on the Source Insights. This summary should capture the evaluator's tone, strategic lens, and priorities.
-Example of expected style: "This evaluator assesses CEO candidates through a lens of long-term sustainability and ethical leadership. Their tone is thoughtful and deliberate, with a preference for leaders who prioritize employee well-being and community impact. They value leaders who are visionary, collaborative, and adaptable to changing market conditions."]
+This evaluator, Christian Schmidt, is a seasoned PE professional who prioritizes data-driven decision-making, rapid execution, and a hands-on approach. He seeks leaders who thrive in resource-constrained environments, demonstrating adaptability and delivering tangible results. He disdains bureaucracy and values cultural alignment with small, agile teams.
 
 📊 Evaluation Heuristics
-[Your task: Generate a table of 5–8 evaluation rules with rationales, derived from the Source Insights. The rules should reflect the evaluator's criteria.
-Follow this Markdown table format:
 | Rule | Evaluation Principle | Rationale |
 |---|---|---|
-| 1. | [Principle 1 based on Source Insights] | [Rationale 1 based on Source Insights] |
-| 2. | [Principle 2 based on Source Insights] | [Rationale 2 based on Source Insights] |
-... (up to 8 rules)
-Example of expected style for a rule:
-| 1. | Ethical leadership | Prioritize candidates who demonstrate a strong commitment to ethical business practices and social responsibility. |
-]
+| 1. | SaaS-native, metric-fluent | Demonstrates deep understanding of SaaS business through command of key metrics like CAC, churn, and retention. |
+| 2. | Two-role relevance | Focuses on the candidate's last 2–3 roles to identify recent patterns of behavior and assess readiness for the CEO role. |
+| 3. | Speed > Theory | Prioritizes candidates who can make fast decisions and execute quickly, reflecting the urgency of the PE environment. |
+| 4. | Hands-on builder | Seeks leaders who are willing to roll up their sleeves and actively contribute, rather than solely delegating tasks.  CrazyBirds needs someone who can DO. |
+| 5. | Step-up readiness | Values potential and hunger in candidates, recognizing that a sharp, motivated individual may outperform a more experienced but complacent one. |
+| 6. | M&A openness | Looks for candidates who understand M&A as a potential growth strategy and have experience integrating acquired startups. |
+| 7. | PE context familiarity | Prefers candidates who have worked in PE or similar high-pressure environments, demonstrating an ability to handle fast-paced and demanding situations. |
+| 8. | Cultural contraction fit | Assesses the candidate's ability to thrive in a small, unstructured team environment, recognizing that big company habits may be detrimental. |
 
 🏆 Success Markers
-[Your task: Generate a bulleted list of 3-7 observable signs of high potential in CEO candidates, derived from the Source Insights. These should align with the evaluator's perspective.
-Example of expected style:
-- Articulates a clear vision for the company's future
-- Demonstrates a commitment to ethical leadership
-- Prioritizes employee well-being and community impact
-- ...
-]
+- Confidently discusses SaaS KPIs with specific examples.
+- Makes decisive recommendations based on data.
+- Demonstrates experience growing a company after the founders stepped back.
+- Has a track record of building strong, effective leadership teams.
+- Exhibits humility and high energy.
+- Shares examples of both successes and failures, with clear explanations of how they learned and improved.
+- Understands M&A as a potential growth strategy and can articulate a clear integration plan.
+- Credits team accomplishments, not just personal achievements.
 
 🌍 Cultural Fit Filters
-[Your task: Generate bulleted lists for "Will work" and "Won't work" beliefs or attitudes in the organization's culture, derived from the Source Insights. These should reflect the evaluator's view on cultural compatibility.
-Example of expected style:
 **Will work:**
-- Commitment to ethical behavior
-- Collaborative leadership style
+- Enjoys leading small, scrappy teams.
+- Thrives in chaotic, unstructured environments.
+- Communicates frequently and transparently with investors.
+- Possesses both strategic vision and practical skills.
+- Is passionate about building something significant from the ground up.
 **Won't work:**
-- Prioritization of short-term profits over long-term sustainability
-- Authoritarian management style
-]
+- Requires large support teams or rigid structures.
+- Avoids messy or early-stage challenges.
+- Relies heavily on others to take action.
+- Views board meetings as infrequent check-ins.
+- Comes from slow-moving, rule-bound organizations.
 
 --- END OF AI AGENT PERSONA MODEL ---
 
-Source Insights:
---- SOURCE INSIGHTS START ---
-{source_insights_text}
---- SOURCE INSIGHTS END ---
+Additional Context (if provided):
+{ceo_job_description}
 
-Now, generate the complete "AI AGENT PERSONA MODEL" by filling in the bracketed sections based *only* on the "Source Insights" provided above. Adhere strictly to the specified structure and formatting, including the predefined instructional text.
+Candidate Information:
+--- CANDIDATE INFORMATION START ---
+{candidate_information_text}
+--- CANDIDATE INFORMATION END ---
+
+Now, analyze the Candidate Information provided, and keeping the Additional Context in mind, provide your evaluation as Christian Schmidt. Remember to first ask if you have all the needed information.
 """
         self.prompt_template = PromptTemplate(
-            input_variables=["source_insights_text"], template=template,
+            input_variables=["candidate_information_text", "ceo_job_description"], template=template,
         )
 
     def _create_chain(self) -> None:
@@ -407,30 +410,42 @@ Now, generate the complete "AI AGENT PERSONA MODEL" by filling in the bracketed 
         return self._extract_text_from_file(file_path)
 
     def run(self, user_input: str = "", files: Optional[List[str]] = None) -> str:
-        primary_insights = user_input.strip() if user_input else ""
-        supplemental_insights_from_files = self._extract_all_files_text(files or [])
+        candidate_information = user_input.strip() if user_input else ""
+        candidate_information_from_files = self._extract_all_files_text(files or [])
 
-        is_primary_valid = primary_insights and is_input_valid(primary_insights, min_length=3, allow_short_natural_lang=True)
-        is_supplemental_valid = supplemental_insights_from_files and is_input_valid(supplemental_insights_from_files, min_length=20)
+        is_candidate_info_valid = candidate_information and is_input_valid(candidate_information, min_length=10, allow_short_natural_lang=True)
+        is_candidate_files_valid = candidate_information_from_files and is_input_valid(candidate_information_from_files, min_length=20)
 
-        source_insights_parts = []
-        if is_primary_valid:
-            source_insights_parts.append(f"Core Description/Instructions for Persona Generation:\n{primary_insights}")
-        if is_supplemental_valid:
-            source_insights_parts.append(f"Supplemental Information from Documents for Persona Generation:\n{supplemental_insights_from_files}")
+        candidate_info_parts = []
+        if is_candidate_info_valid:
+            candidate_info_parts.append(f"Candidate Description/Information:\n{candidate_information}")
+        if is_candidate_files_valid:
+            candidate_info_parts.append(f"Candidate Details from Documents:\n{candidate_information_from_files}")
 
-        if not source_insights_parts:
-            error_message = "Error: Source insights (from description and/or files) are insufficient or non-meaningful to generate the persona. Please provide more information."
+        if not candidate_info_parts:
+            error_message = "Error: Candidate information (from description and/or files) is insufficient. Please provide more details about the candidate."
             logger.error(f"{self.name}: {error_message}")
-            return error_message  # Return error string as the API expects.
+            return error_message
 
-        final_source_insights_text = "\n\n".join(source_insights_parts)
+        final_candidate_information_text = "\n\n".join(candidate_info_parts)
+
+        # Hardcoded Job Description.  This is crucial.  You can also make this a file upload or input.
+        ceo_job_description = """
+        CrazyBirds is looking for a CEO to scale our SaaS platform. The ideal candidate will have experience with:
+        - Driving revenue growth in a SaaS company
+        - Managing a team of 20+ employees
+        - Raising Series A or B funding
+        - Building a strong company culture
+        - M&A experience is a plus.
+        """
+
 
         if self.verbose:
-            logger.info(f"{self.name}: Final Source Insights for LLM (preview): {final_source_insights_text[:300]}...")
+            logger.info(f"{self.name}: Candidate Info (preview): {final_candidate_information_text[:300]}...")
 
         input_data = {
-            "source_insights_text": final_source_insights_text,
+            "candidate_information_text": final_candidate_information_text,
+            "ceo_job_description": ceo_job_description
         }
 
         try:
@@ -441,20 +456,11 @@ Now, generate the complete "AI AGENT PERSONA MODEL" by filling in the bracketed 
             else:
                 response_raw = self.chain.run(input_data)  # type: ignore
 
-            def extract_persona(text: str) -> str:
-                pattern = re.compile(
-                    r"--- START OF AI AGENT PERSONA MODEL ---\s*(.*?)\s*--- END OF AI AGENT PERSONA MODEL ---",
-                    re.DOTALL
-                )
-                match = pattern.search(text)
-                return match.group(1).strip() if match else text.strip()
-
-            extracted_response = extract_persona(response_raw)
-
-            logger.info(f"{self.name}: Successfully generated persona model.")
-            return extracted_response.strip()
+            # Removed persona extraction, as it is not needed now.
+            logger.info(f"{self.name}: Successfully evaluated candidate.")
+            return response_raw.strip()
 
         except Exception as e:
-            error_message = f"Error: Could not generate persona model. Details: {e}"
-            logger.exception(f"{self.name}: LLM chain error during persona generation: {e}")
-            return error_message  # Return error string as the API expects
+            error_message = f"Error: Could not evaluate candidate. Details: {e}"
+            logger.exception(f"{self.name}: LLM chain error during evaluation: {e}")
+            return error_message

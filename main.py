@@ -449,7 +449,7 @@ async def create_client_persona_prompt(
                     shutil.copyfileobj(file_obj.file, tmp); temp_paths.append(tmp.name)
         
         agent = ClientRepresentativeCreatorAgent(verbose=True)
-        prompt = agent.run(client_description=client_description or "", transcript_file_paths=temp_paths)
+        prompt = agent.run(client_description=client_description or "", transcript_files=temp_paths)
         if prompt.startswith("Error:"):
             raise HTTPException(status_code=400, detail=prompt)
         return {"generated_prompt": prompt}
