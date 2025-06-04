@@ -460,38 +460,86 @@ async def create_client_persona_prompt(
             try: os.remove(path)
             except Exception as ex: logger.warning(f"{endpoint_name}: Cleanup error {path}: {ex}")
 
+# @app.post("/client_feedback/")
+# async def get_client_feedback( 
+#     user_input: str = Form(""), 
+#     files: List[UploadFile] = File(default=[])
+# ):
+#     endpoint_name = "/client_feedback/"
+#     if user_input and not is_api_input_valid(user_input, "user_input", min_length=20): # User input is the main document to review + persona
+#         if not files:
+#             raise HTTPException(status_code=400, detail="Provided 'user_input' is not meaningful, and no files were uploaded for context.")
+#         logger.warning(f"{endpoint_name}: 'user_input' seems weak, agent will attempt with files.")
+#         # Agent's `run` will handle this.
+
+#     logger.info(f"{endpoint_name}: User_input: {bool(user_input)}, Files: {len(files)}")
+#     temp_paths = []
+#     try:
+#         if not user_input.strip() and not files:
+#             raise HTTPException(status_code=400, detail="No input (user_input or files) provided.")
+#         for file_obj in files:
+#             with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file_obj.filename)[-1]) as tmp:
+#                 shutil.copyfileobj(file_obj.file, tmp); temp_paths.append(tmp.name)
+        
+#         agent = ClientRepresentativeAgent(verbose=True)
+#         response = agent.run(input_statement=user_input, transcript_file_paths=temp_paths)
+#         if response.startswith("Error:"):
+#             raise HTTPException(status_code=400, detail=response)
+#         return {"client_representative_feedback": response}
+#     except HTTPException as http_exc: raise http_exc
+#     except Exception as e: logger.exception(f"{endpoint_name}: Error: {e}"); raise HTTPException(status_code=500, detail=str(e))
+#     finally:
+#         for path in temp_paths:
+#             try: os.remove(path)
+#             except Exception as ex: logger.warning(f"{endpoint_name}: Cleanup error {path}: {ex}")
+
+
 @app.post("/client_feedback/")
-async def get_client_feedback( 
-    user_input: str = Form(""), 
+async def get_client_feedback(
+    user_input: str = Form(""),
     files: List[UploadFile] = File(default=[])
 ):
     endpoint_name = "/client_feedback/"
-    if user_input and not is_api_input_valid(user_input, "user_input", min_length=20): # User input is the main document to review + persona
+
+    # Input Validation:
+    if not user_input.strip() and not files:
+        raise HTTPException(status_code=400, detail="No input (user_input or files) provided.")
+
+    if user_input and not is_api_input_valid(user_input, "user_input", min_length=20):
         if not files:
             raise HTTPException(status_code=400, detail="Provided 'user_input' is not meaningful, and no files were uploaded for context.")
         logger.warning(f"{endpoint_name}: 'user_input' seems weak, agent will attempt with files.")
-        # Agent's `run` will handle this.
 
     logger.info(f"{endpoint_name}: User_input: {bool(user_input)}, Files: {len(files)}")
     temp_paths = []
+
     try:
-        if not user_input.strip() and not files:
-            raise HTTPException(status_code=400, detail="No input (user_input or files) provided.")
+        # Save uploaded files to temporary files
         for file_obj in files:
             with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file_obj.filename)[-1]) as tmp:
                 shutil.copyfileobj(file_obj.file, tmp); temp_paths.append(tmp.name)
-        
+
+        # Initialize and run the agent
         agent = ClientRepresentativeAgent(verbose=True)
-        response = agent.run(input_statement=user_input, transcript_file_paths=temp_paths)
+        response = agent.run(user_input=user_input, files=temp_paths)  # Ensure arguments match agent.run
+
         if response.startswith("Error:"):
             raise HTTPException(status_code=400, detail=response)
+
         return {"client_representative_feedback": response}
-    except HTTPException as http_exc: raise http_exc
-    except Exception as e: logger.exception(f"{endpoint_name}: Error: {e}"); raise HTTPException(status_code=500, detail=str(e))
+
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        logger.exception(f"{endpoint_name}: Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
+        # Clean up temporary files
         for path in temp_paths:
-            try: os.remove(path)
-            except Exception as ex: logger.warning(f"{endpoint_name}: Cleanup error {path}: {ex}")
+            try:
+                os.remove(path)
+            except Exception as ex:
+                logger.warning(f"{endpoint_name}: Cleanup error {path}: {ex}")
 
 @app.post("/interview_report")
 async def create_interview_report(
