@@ -225,242 +225,131 @@
 #         except Exception as feedback_error:
 #             logger.error(f"ClientRepAgent: Error in feedback chain: {feedback_error}")
 #             return f"Error: Could not generate client feedback. Details: {feedback_error}"
-
 import os
-from typing import List, Optional
+from typing import List
 from dotenv import load_dotenv
-try:
-    from langchain_openai import OpenAI, ChatOpenAI
-except ImportError:
-    from langchain_community.llms import OpenAI
-    from langchain_community.chat_models import ChatOpenAI
+from fastapi import UploadFile
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
+from langchain_openai import ChatOpenAI
 import fitz  # PyMuPDF
 import json
 import logging
-import re
 
 load_dotenv()
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
-def is_input_valid(text: str, min_length: int = 10, short_text_threshold: int = 20, min_unique_chars_for_short_text: int = 3, allow_short_natural_lang: bool = False) -> bool:
-    if not text or not text.strip(): return False
-    stripped_text = text.strip()
-    if allow_short_natural_lang and len(stripped_text) < min_length:
-        # For short natural language, ensure it's not just punctuation or a single repeating char
-        alnum_present = any(c.isalnum() for c in stripped_text)
-        if not alnum_present and len(stripped_text) > 0: return False
-        if alnum_present and len(set(''.join(filter(str.isalnum, stripped_text)).lower())) < min_unique_chars_for_short_text and len(stripped_text) < short_text_threshold :
-             # e.g. "aaa" with min_unique_chars_for_short_text = 3 and length < threshold
-             if len(set(''.join(filter(str.isalnum, stripped_text)).lower())) < 1 : return False # ensure at least one unique alnum if alnum_present
-        return bool(len(stripped_text) >=1 and alnum_present) # Must have at least one char and some alnum
-    if len(stripped_text) < min_length: return False
-    if len(stripped_text) <= short_text_threshold:
-        alnum = ''.join(filter(str.isalnum, stripped_text))
-        if not alnum and len(stripped_text) > 0: return False
-        elif alnum and len(set(alnum.lower())) < min_unique_chars_for_short_text: return False
-    return True
+def is_input_valid(text: str, min_length: int = 10) -> bool:
+    return bool(text and len(text.strip()) >= min_length)
 
 
 class ClientRepresentativeAgent:
     def __init__(self, verbose: bool = False):
-        self.name = "CrazyBirds CEO Candidate Evaluator"
+        self.name = "Client Representative Agent"
         self.verbose = verbose
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         if not self.openai_api_key:
-            logger.error(f"{self.name}: OpenAI API key not found.")
+            logger.error("OPENAI_API_KEY not found.")
             raise ValueError("OPENAI_API_KEY not found.")
-
-        try:
-            self.llm = ChatOpenAI(openai_api_key=self.openai_api_key, temperature=0.7, model_name="gpt-3.5-turbo")
-        except Exception as e:
-            logger.exception(f"{self.name}: Error initializing LLM: {e}")
-            raise
+        
+        self.llm = ChatOpenAI(
+            openai_api_key=self.openai_api_key,
+            temperature=0.7,
+            model_name="gpt-4"
+        )
 
         self._create_prompt()
         self._create_chain()
-        if self.verbose:
-            logger.info(f"{self.name} initialized")
 
-    def _create_prompt(self) -> None:
-        template = """You are Christian Schmidt, a senior partner at Alpine Partners, evaluating CEO candidates for CrazyBirds, a small, scrappy SaaS company.  You have a high-performance private equity (PE) mindset. You value data, speed, hands-on leadership, and cultural fit in small SaaS companies. You are not impressed by big titles or big companies unless they show adaptability and real impact.  You act according to the following persona guidelines:
+    def _create_prompt(self):
+        template = """
+You are an experienced executive search evaluator. Based on the candidate input and any additional documents, produce a structured evaluation. Do not assume a default persona or background.
 
---- START OF AI AGENT PERSONA MODEL ---
-
-You are an evaluator of CEO candidates. Please act according to the Persona described in the Source Insights.
-
-Before evaluating any CEO candidate:
-1. Always first ask if there is additional context you should consider before giving an opinion.
-2. Always provide your answer in English.
-
-When evaluating potential CEO candidates you will use the following rules to do so. In addition to these rules you will use your persona to act in accordance to your experience.
-
-👤 Persona Summary:
-This evaluator, Christian Schmidt, is a seasoned PE professional who prioritizes data-driven decision-making, rapid execution, and a hands-on approach. He seeks leaders who thrive in resource-constrained environments, demonstrating adaptability and delivering tangible results. He disdains bureaucracy and values cultural alignment with small, agile teams.
-
-📊 Evaluation Heuristics
-| Rule | Evaluation Principle | Rationale |
-|---|---|---|
-| 1. | SaaS-native, metric-fluent | Demonstrates deep understanding of SaaS business through command of key metrics like CAC, churn, and retention. |
-| 2. | Two-role relevance | Focuses on the candidate's last 2–3 roles to identify recent patterns of behavior and assess readiness for the CEO role. |
-| 3. | Speed > Theory | Prioritizes candidates who can make fast decisions and execute quickly, reflecting the urgency of the PE environment. |
-| 4. | Hands-on builder | Seeks leaders who are willing to roll up their sleeves and actively contribute, rather than solely delegating tasks.  CrazyBirds needs someone who can DO. |
-| 5. | Step-up readiness | Values potential and hunger in candidates, recognizing that a sharp, motivated individual may outperform a more experienced but complacent one. |
-| 6. | M&A openness | Looks for candidates who understand M&A as a potential growth strategy and have experience integrating acquired startups. |
-| 7. | PE context familiarity | Prefers candidates who have worked in PE or similar high-pressure environments, demonstrating an ability to handle fast-paced and demanding situations. |
-| 8. | Cultural contraction fit | Assesses the candidate's ability to thrive in a small, unstructured team environment, recognizing that big company habits may be detrimental. |
-
-🏆 Success Markers
-- Confidently discusses SaaS KPIs with specific examples.
-- Makes decisive recommendations based on data.
-- Demonstrates experience growing a company after the founders stepped back.
-- Has a track record of building strong, effective leadership teams.
-- Exhibits humility and high energy.
-- Shares examples of both successes and failures, with clear explanations of how they learned and improved.
-- Understands M&A as a potential growth strategy and can articulate a clear integration plan.
-- Credits team accomplishments, not just personal achievements.
-
-🌍 Cultural Fit Filters
-**Will work:**
-- Enjoys leading small, scrappy teams.
-- Thrives in chaotic, unstructured environments.
-- Communicates frequently and transparently with investors.
-- Possesses both strategic vision and practical skills.
-- Is passionate about building something significant from the ground up.
-**Won't work:**
-- Requires large support teams or rigid structures.
-- Avoids messy or early-stage challenges.
-- Relies heavily on others to take action.
-- Views board meetings as infrequent check-ins.
-- Comes from slow-moving, rule-bound organizations.
-
---- END OF AI AGENT PERSONA MODEL ---
-
-Additional Context (if provided):
-{ceo_job_description}
+Instructions:
+1. Use only the information provided below.
+2. Analyze any documents or candidate text for leadership capability, cultural fit, and strategic experience.
+3. Write in a professional tone with clear sections like “Summary Evaluation,” “Strengths,” “Risks,” and “Recommendation.”
 
 Candidate Information:
---- CANDIDATE INFORMATION START ---
 {candidate_information_text}
---- CANDIDATE INFORMATION END ---
 
-Now, analyze the Candidate Information provided, and keeping the Additional Context in mind, provide your evaluation as Christian Schmidt. Remember to first ask if you have all the needed information.
+Additional Context (if any):
+{ceo_job_description}
 """
         self.prompt_template = PromptTemplate(
-            input_variables=["candidate_information_text", "ceo_job_description"], template=template,
+            input_variables=["candidate_information_text", "ceo_job_description"],
+            template=template,
         )
 
-    def _create_chain(self) -> None:
+    def _create_chain(self):
         self.chain = LLMChain(llm=self.llm, prompt=self.prompt_template, verbose=self.verbose)
 
-    def _extract_text_from_file(self, file_path: str) -> str:
-        if not file_path or not os.path.exists(file_path):
-            logger.warning(f"{self.name}: File not found: {file_path}")
-            return ""
-        content = ""; ext = os.path.splitext(file_path)[-1].lower()
+    def _extract_text_from_file(self, file: UploadFile) -> str:
+        ext = os.path.splitext(file)[-1].lower()
         try:
             if ext == ".pdf":
-                with fitz.open(file_path) as doc: content = "".join(p.get_text() for p in doc)
+                doc = fitz.open(stream=file.file.read(), filetype="pdf")
+                return "".join([page.get_text() for page in doc])
             elif ext == ".txt":
-                with open(file_path, "r", encoding="utf-8") as f: content = f.read()
+                return file.file.read().decode("utf-8")
             elif ext == ".json":
-                with open(file_path, "r", encoding="utf-8") as f: data = json.load(f)
-                text_parts = []
-                if isinstance(data, list):
-                    for item in data:
-                        if isinstance(item, dict):
-                            # Prioritize common keys for textual content
-                            for k_item in ['text', 'transcript', 'line', 'message', 'content', 'summary']:
-                                if k_item in item and isinstance(item[k_item], str): text_parts.append(item[k_item]); break
-                            else:  # Fallback to joining all string values if specific keys not found
-                                text_parts.extend(str(v) for v in item.values() if isinstance(v, str))
-                        elif isinstance(item, str): text_parts.append(item)
-                        # else: text_parts.append(str(item)) # Avoid overly verbose stringification of complex objects
-                elif isinstance(data, dict):
-                    for k_item in ['text', 'transcript', 'full_text', 'summary', 'content', 'description']:
-                        if k_item in data and isinstance(data[k_item], str): text_parts.append(data[k_item]); break
-                    else:  # Fallback to joining all string values if specific relevant keys
-                        text_parts.extend(f"{k}: {v}" for k, v in data.items() if isinstance(v, (str, int, float, bool)))
-                # else: text_parts.append(str(data)) # Avoid general stringification
-                content = "\n".join(filter(None, text_parts)) if text_parts else json.dumps(data, indent=2)  # Fallback to pretty JSON if no text extracted
+                data = json.load(file.file)
+                if isinstance(data, dict):
+                    return json.dumps(data, indent=2)
+                return "\n".join(str(item) for item in data)
             else:
-                logger.warning(f"{self.name}: Unsupported file type: {file_path} for direct text extraction.")
+                logger.warning(f"Unsupported file type: {file.filename}")
                 return ""
-            return content.strip()
         except Exception as e:
-            logger.error(f"{self.name}: Error reading or processing file {file_path}: {e}")
+            logger.error(f"Error reading file {file}: {e}")
             return ""
 
-    def _extract_all_files_text(self, file_paths: List[str]) -> str:
-        all_texts = []
-        for p in file_paths:
-            if self.verbose: logger.info(f"Attempting to extract text from: {p}")
-            content = self.extract_text_from_file(p)  # Corrected: call instance method
-            if content:
-                all_texts.append(f"--- Content from file: {os.path.basename(p)} ---\n{content}")
-            elif self.verbose:
-                logger.info(f"No content extracted or file unsupported: {p}")
+    def _extract_all_files_text(self, files: List[UploadFile]) -> str:
+        texts = []
+        for file in files:
+            text = self._extract_text_from_file(file)
+            if text:
+                texts.append(f"--- File: {file.filename} ---\n{text}")
+        return "\n\n".join(texts)
 
-        return "\n\n".join(all_texts).strip()
-
-    def extract_text_from_file(self, file_path: str) -> str:
-        return self._extract_text_from_file(file_path)
-
-    def run(self, user_input: str = "", files: Optional[List[str]] = None) -> str:
-        candidate_information = user_input.strip() if user_input else ""
-        candidate_information_from_files = self._extract_all_files_text(files or [])
-
-        is_candidate_info_valid = candidate_information and is_input_valid(candidate_information, min_length=10, allow_short_natural_lang=True)
-        is_candidate_files_valid = candidate_information_from_files and is_input_valid(candidate_information_from_files, min_length=20)
-
+    def run(self, user_input: str, files: List[str]) -> str:
         candidate_info_parts = []
-        if is_candidate_info_valid:
-            candidate_info_parts.append(f"Candidate Description/Information:\n{candidate_information}")
-        if is_candidate_files_valid:
-            candidate_info_parts.append(f"Candidate Details from Documents:\n{candidate_information_from_files}")
+
+        if user_input and is_input_valid(user_input.strip(), min_length=10):
+            candidate_info_parts.append(f"Manual Input:\n{user_input.strip()}")
+
+        if files:
+            file_text = self._extract_all_files_text(files)
+            if file_text and is_input_valid(file_text, min_length=20):
+                candidate_info_parts.append(f"Extracted from Files:\n{file_text}")
 
         if not candidate_info_parts:
-            error_message = "Error: Candidate information (from description and/or files) is insufficient. Please provide more details about the candidate."
+            error_message = "Error: Candidate information is insufficient. Provide valid manual input or supported files."
             logger.error(f"{self.name}: {error_message}")
             return error_message
 
-        final_candidate_information_text = "\n\n".join(candidate_info_parts)
-
-        # Hardcoded Job Description.  This is crucial.  You can also make this a file upload or input.
-        ceo_job_description = """
-        CrazyBirds is looking for a CEO to scale our SaaS platform. The ideal candidate will have experience with:
-        - Driving revenue growth in a SaaS company
-        - Managing a team of 20+ employees
-        - Raising Series A or B funding
-        - Building a strong company culture
-        - M&A experience is a plus.
-        """
-
+        final_text = "\n\n".join(candidate_info_parts)
 
         if self.verbose:
-            logger.info(f"{self.name}: Candidate Info (preview): {final_candidate_information_text[:300]}...")
-
-        input_data = {
-            "candidate_information_text": final_candidate_information_text,
-            "ceo_job_description": ceo_job_description
-        }
+            logger.info(f"{self.name}: Combined input for evaluation: {final_text[:300]}...")
 
         try:
+            input_data = {
+                "candidate_information_text": final_text,
+                "ceo_job_description": ""  # You can modify this if needed
+            }
+
             response_raw: str
             if hasattr(self.chain, 'invoke'):
                 res_dict = self.chain.invoke(input_data)
                 response_raw = res_dict.get('text', str(res_dict))
             else:
-                response_raw = self.chain.run(input_data)  # type: ignore
+                response_raw = self.chain.run(input_data)  # legacy path
 
-            # Removed persona extraction, as it is not needed now.
-            logger.info(f"{self.name}: Successfully evaluated candidate.")
             return response_raw.strip()
 
         except Exception as e:
-            error_message = f"Error: Could not evaluate candidate. Details: {e}"
-            logger.exception(f"{self.name}: LLM chain error during evaluation: {e}")
-            return error_message
+            logger.exception(f"{self.name}: Evaluation failed: {e}")
+            return f"Error: Evaluation failed due to: {str(e)}"

@@ -159,7 +159,6 @@ logger = logging.getLogger(__name__)
 if not logging.root.handlers:
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-
 def is_input_valid(text: str, min_length: int = 5, short_text_threshold: int = 20,
                    min_unique_chars_for_short_text: int = 3, allow_short_natural_lang: bool = True) -> bool:
     """
@@ -188,7 +187,6 @@ def is_input_valid(text: str, min_length: int = 5, short_text_threshold: int = 2
             return False
 
     return True
-
 
 class ClientRepresentativeCreatorAgent:
     """
@@ -230,18 +228,18 @@ class ClientRepresentativeCreatorAgent:
         """
         template = """You are an expert in creating prompt templates for AI agents. Your task is to generate a prompt template that will guide an AI agent in creating an evaluator persona for a SaaS CEO candidate assessment.
 
-The prompt template should instruct the AI to:
+        The prompt template should instruct the AI to:
 
-1.  Create a Persona Summary (1 paragraph):  This should cover the tone, strategic lens, and priorities of the evaluator persona. The persona represents [Christian/Stephan] in their role as [Senior Partner / Board Chair].
-2.  Define Evaluation Heuristics:  Create a table of 5–8 evaluation rules that the persona would use, along with a rationale for each rule (e.g., “Prefers product-centric CEOs with GTM scaling experience because…”).
-3.  Identify Success Markers: List observable signs of high potential in candidates, according to the persona (e.g., demonstrated resilience, unusual P&L insight, etc.).
-4.  Establish Cultural Fit Filters: Define beliefs or attitudes that the persona would find acceptable or unacceptable in the organization's culture.
+        1.  Create a Persona Summary (1 paragraph):  This should cover the tone, strategic lens, and priorities of the evaluator persona. The persona represents in their role as.
+        2.  Define Evaluation Heuristics:  Create a table of 5–8 evaluation rules that the persona would use, along with a rationale for each rule (e.g., “Prefers product-centric CEOs with GTM scaling experience because…”).
+        3.  Identify Success Markers: List observable signs of high potential in candidates, according to the persona (e.g., demonstrated resilience, unusual P&L insight, etc.).
+        4.  Establish Cultural Fit Filters: Define beliefs or attitudes that the persona would find acceptable or unacceptable in the organization's culture.
 
-The prompt template MUST include a placeholder for "Source Insights" where the extracted information about the stakeholder’s preferences will be inserted.
+        The prompt template MUST include a placeholder for "Source Insights" where the extracted information about the stakeholder’s preferences will be inserted.
 
-Here's the prompt template you should generate, incorporating any provided input as context for the prompt itself:
+        Here's the prompt template you should generate, incorporating any provided input as context for the prompt itself:
 
-"""
+        """
         # The template expects 'combined_input' which will contain text from manual input and/or files.
         self.prompt_template = PromptTemplate(
             input_variables=["combined_input"],
