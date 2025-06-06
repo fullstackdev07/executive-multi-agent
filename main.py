@@ -292,12 +292,14 @@ from agents.client_representative_creator_agent import ClientRepresentativeCreat
 from agents.interview_report_creator_agent import InterviewReportCreatorAgent
 from agents.job_description_writer_agent import JobDescriptionWriterAgent
 from agents.market_intelligence_agent import MarketIntelligenceAgent
-from orchestrator.multi_agent_orchestrator import MultiAgentOrchestrator
+# from orchestrator.multi_agent_orchestrator import MultiAgentOrchestrator
+from routers.project import router as project_router
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
+
  
 origins = [
     "*", 
@@ -310,15 +312,15 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"],
 )
 
-# Helper function to check for basic input validity (can be in a utils.py)
+app.include_router(project_router, prefix="")
+# Helper function to check for basic input validity
 def is_api_input_valid(text: Optional[str], field_name: str, min_length: int = 10, short_text_threshold: int = 20, min_unique_chars_for_short_text: int = 3) -> bool:
-    if text is None: # Allow optional fields to be None
+    if text is None:
         return True
-    if not text.strip(): # If provided but empty string
-        # Depending on whether an empty string is acceptable for this optional field
+    if not text.strip():
         logger.warning(f"API Validation: Optional field '{field_name}' is an empty string.")
-        return True # Or False if empty string is not allowed even if optional
-        
+        return True
+
     stripped_text = text.strip()
     if len(stripped_text) < min_length:
         logger.warning(f"API Validation: Field '{field_name}' ('{stripped_text[:30]}...') is too short (min_length: {min_length}).")
@@ -326,13 +328,12 @@ def is_api_input_valid(text: Optional[str], field_name: str, min_length: int = 1
     if len(stripped_text) <= short_text_threshold:
         alnum_text_part = ''.join(filter(str.isalnum, stripped_text))
         if not alnum_text_part and len(stripped_text) > 0:
-             logger.warning(f"API Validation: Field '{field_name}' ('{stripped_text[:30]}...') consists mainly of symbols.")
-             return False
+            logger.warning(f"API Validation: Field '{field_name}' ('{stripped_text[:30]}...') consists mainly of symbols.")
+            return False
         elif alnum_text_part and len(set(alnum_text_part.lower())) < min_unique_chars_for_short_text:
             logger.warning(f"API Validation: Field '{field_name}' ('{stripped_text[:30]}...') lacks character diversity for its length.")
             return False
     return True
-
 
 @app.get("/")
 async def root():
@@ -460,40 +461,6 @@ async def create_client_persona_prompt(
             try: os.remove(path)
             except Exception as ex: logger.warning(f"{endpoint_name}: Cleanup error {path}: {ex}")
 
-# @app.post("/client_feedback/")
-# async def get_client_feedback( 
-#     user_input: str = Form(""), 
-#     files: List[UploadFile] = File(default=[])
-# ):
-#     endpoint_name = "/client_feedback/"
-#     if user_input and not is_api_input_valid(user_input, "user_input", min_length=20): # User input is the main document to review + persona
-#         if not files:
-#             raise HTTPException(status_code=400, detail="Provided 'user_input' is not meaningful, and no files were uploaded for context.")
-#         logger.warning(f"{endpoint_name}: 'user_input' seems weak, agent will attempt with files.")
-#         # Agent's `run` will handle this.
-
-#     logger.info(f"{endpoint_name}: User_input: {bool(user_input)}, Files: {len(files)}")
-#     temp_paths = []
-#     try:
-#         if not user_input.strip() and not files:
-#             raise HTTPException(status_code=400, detail="No input (user_input or files) provided.")
-#         for file_obj in files:
-#             with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file_obj.filename)[-1]) as tmp:
-#                 shutil.copyfileobj(file_obj.file, tmp); temp_paths.append(tmp.name)
-        
-#         agent = ClientRepresentativeAgent(verbose=True)
-#         response = agent.run(input_statement=user_input, transcript_file_paths=temp_paths)
-#         if response.startswith("Error:"):
-#             raise HTTPException(status_code=400, detail=response)
-#         return {"client_representative_feedback": response}
-#     except HTTPException as http_exc: raise http_exc
-#     except Exception as e: logger.exception(f"{endpoint_name}: Error: {e}"); raise HTTPException(status_code=500, detail=str(e))
-#     finally:
-#         for path in temp_paths:
-#             try: os.remove(path)
-#             except Exception as ex: logger.warning(f"{endpoint_name}: Cleanup error {path}: {ex}")
-
-
 @app.post("/client_feedback/")
 async def get_client_feedback(
     user_input: str = Form(""),
@@ -593,7 +560,7 @@ async def multi_agent_pipeline(
                 shutil.copyfileobj(f_obj.file, tmp); temp_paths.append(tmp.name)
         
         orchestrator = MultiAgentOrchestrator(verbose=True)
-        result = orchestrator.run_pipeline(company_info, temp_paths) 
+        result = orchestrator.run(company_info, temp_paths) 
         # Orchestrator now checks for "Error:" prefixes and can return them in results
         # Check if a top-level error was returned by orchestrator due to early pipeline failure
         if isinstance(result, dict) and any(key.endswith("_error") for key in result.keys()):
